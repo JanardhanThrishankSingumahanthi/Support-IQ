@@ -1,0 +1,20 @@
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.*
+!.env.example
+.vscode/
+.DS_Store
+Thumbs.db
+*.sqlite3
+*.db
+
+# Local Node.js installer archive
+node-v*.zip
