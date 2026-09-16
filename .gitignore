@@ -18,3 +18,6 @@ Thumbs.db
 
 # Local Node.js installer archive
 node-v*.zip
+frontend/node-v*.zip
+.tools/
+

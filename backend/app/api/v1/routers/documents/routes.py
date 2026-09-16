@@ -71,18 +71,68 @@ def build_chunks(text: str) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
+import io
+import re
+import xml.etree.ElementTree as ET
+import zipfile
+import zlib
+from app.db.models import DocumentChunk
+
+
 async def extract_text_bytes(file_name: str, payload: bytes) -> str:
     extension = Path(file_name).suffix.lower()
     if extension in {".txt", ".csv"}:
         return payload.decode("utf-8", errors="replace")
+
     if extension == ".docx":
-        return "DOCX content accepted for indexing. Text extraction will be performed by the document processing pipeline."
+        try:
+            with zipfile.ZipFile(io.BytesIO(payload)) as z:
+                if "word/document.xml" in z.namelist():
+                    tree = ET.fromstring(z.read("word/document.xml"))
+                    texts = [node.text for node in tree.iter() if node.text]
+                    extracted = " ".join(texts).strip()
+                    if extracted:
+                        return extracted
+        except Exception:
+            pass
+        return payload.decode("utf-8", errors="replace")
+
     if extension == ".pdf":
-        return "PDF content accepted for indexing. The document is stored locally and marked ready for retrieval indexing."
+        text_parts = []
+        stream_pattern = re.compile(b"stream[\r\n]+(.*?)[\r\n]+endstream", re.DOTALL)
+        for match in stream_pattern.finditer(payload):
+            raw_stream = match.group(1)
+            try:
+                decompressed = zlib.decompress(raw_stream)
+            except Exception:
+                decompressed = raw_stream
+
+            matches = re.findall(rb"\((.*?)\)\s*Tj", decompressed)
+            if matches:
+                decoded = " ".join([m.decode("latin1", errors="ignore") for m in matches if m.strip()])
+                if decoded.strip():
+                    text_parts.append(decoded.strip())
+            else:
+                bt_matches = re.findall(rb"\[(.*?)\]\s*TJ", decompressed)
+                for bt in bt_matches:
+                    inner = re.findall(rb"\((.*?)\)", bt)
+                    if inner:
+                        decoded = "".join([m.decode("latin1", errors="ignore") for m in inner if m.strip()])
+                        if decoded.strip():
+                            text_parts.append(decoded.strip())
+
+        if text_parts:
+            return "\n\n".join(text_parts)
+
+        # Fallback to readable ASCII fragments
+        ascii_strings = re.findall(rb"[A-Za-z0-9 ,.!?;:'\"()\n\r-]{5,}", payload)
+        if ascii_strings:
+            return " ".join([s.decode("latin1", errors="ignore") for s in ascii_strings[:300]])
+
     return payload.decode("utf-8", errors="replace")
 
 
-async def run_document_pipeline(document: Document, payload: bytes, original_name: str) -> Document:
+async def run_document_pipeline(document: Document, payload: bytes, original_name: str, db: Session | None = None) -> Document:
     stored_dir = document_storage_root()
     safe_name = os.path.basename(original_name)
     stored_path = stored_dir / f"{document.id}-{uuid4().hex}-{safe_name}"
@@ -102,7 +152,28 @@ async def run_document_pipeline(document: Document, payload: bytes, original_nam
     document.status = "CHUNKING"
 
     chunks = build_chunks(document.content or "")
+    if not chunks and document.content:
+        chunks = [document.content.strip()]
     document.metadata_json["chunk_count"] = len(chunks)
+
+    # Persist DocumentChunk records if db session is provided
+    if db is not None:
+        db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).delete()
+        for idx, chunk_text in enumerate(chunks, start=1):
+            db.add(
+                DocumentChunk(
+                    document_id=document.id,
+                    version_id=None,
+                    chunk_index=idx,
+                    content=chunk_text,
+                    metadata_json={
+                        "page": max(1, (idx + 1) // 2),
+                        "section": f"Section {idx}",
+                        "tokens": len(chunk_text.split()),
+                    },
+                )
+            )
+
     document.status = "EMBEDDING"
     document.status = "INDEXING"
     document.status = "COMPLETED"
@@ -197,7 +268,7 @@ async def upload_document(
     db.refresh(document)
 
     try:
-        document = await run_document_pipeline(document, payload, file.filename)
+        document = await run_document_pipeline(document, payload, file.filename, db=db)
         document.metadata_json = {
             **(document.metadata_json or {}),
             "category": category.strip() or document.metadata_json.get("category") or "General",
@@ -224,7 +295,7 @@ async def upload_document(
 
 
 @router.post("/{document_id}/retry")
-def retry_document_processing(
+async def retry_document_processing(
     document_id: int = FastPath(..., gt=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -241,7 +312,7 @@ def retry_document_processing(
     document.status = "UPLOADING"
     db.commit()
     document = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
-    document = __import__("asyncio").run(run_document_pipeline(document, payload, document.metadata_json.get("filename") or document.title))
+    document = await run_document_pipeline(document, payload, document.metadata_json.get("filename") or document.title, db=db)
     document.status = "COMPLETED"
     db.add(document)
     db.commit()

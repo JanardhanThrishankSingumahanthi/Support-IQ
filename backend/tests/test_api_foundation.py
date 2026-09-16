@@ -27,10 +27,9 @@ def test_not_implemented_routes_return_honest_state():
     assert payload["status"] == "not_implemented"
     assert "message" in payload
 
+    # retrieval/search is now implemented and requires authentication
     response = client.get("/api/v1/retrieval/search")
-    assert response.status_code == 501
-    payload = response.json()
-    assert payload["status"] == "not_implemented"
+    assert response.status_code == 401
 
 
 def test_api_health_and_v1_prefix_are_available():
