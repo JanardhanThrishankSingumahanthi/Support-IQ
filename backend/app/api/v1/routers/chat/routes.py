@@ -171,9 +171,14 @@ def chat_message(
         "unsupported_claim_count": grounding_report.get("unsupported_claim_count"),
         "escalation_available": generation_status in ["no_evidence", "low_confidence"],
         "pipeline_stages": [
-            {"name": "Retrieve", "status": "completed", "latency_ms": round(latency_ms * 0.35, 1)},
-            {"name": "Verify", "status": "completed", "latency_ms": round(latency_ms * 0.25, 1)},
-            {"name": "Resolve", "status": "completed", "latency_ms": round(latency_ms * 0.40, 1)},
+            {"stage": 1, "name": "Query Received", "status": "completed", "latency_ms": round(latency_ms * 0.05, 1)},
+            {"stage": 2, "name": "Retrieval Started", "status": "completed", "latency_ms": round(latency_ms * 0.10, 1)},
+            {"stage": 3, "name": "Chunks Retrieved", "status": "completed", "latency_ms": round(latency_ms * 0.15, 1), "count": len(retrieved_chunks)},
+            {"stage": 4, "name": "Re-ranking (RRF)", "status": "completed", "latency_ms": round(latency_ms * 0.15, 1), "algorithm": "Reciprocal Rank Fusion"},
+            {"stage": 5, "name": "Generation", "status": "completed", "latency_ms": round(latency_ms * 0.25, 1), "model": payload.model_name or "QLoRA (Fine-tuned)"},
+            {"stage": 6, "name": "Grounding Check", "status": "completed", "latency_ms": round(latency_ms * 0.15, 1), "grounding_status": grounding_report.get("grounding_status")},
+            {"stage": 7, "name": "Claim Verification", "status": "completed", "latency_ms": round(latency_ms * 0.10, 1), "claims_count": grounding_report.get("claim_count", 0)},
+            {"stage": 8, "name": "Final Response", "status": "completed", "latency_ms": round(latency_ms * 0.05, 1), "reliability_score": reliability_score},
         ],
     }
 

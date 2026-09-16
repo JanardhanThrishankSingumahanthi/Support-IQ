@@ -129,3 +129,50 @@ def test_grounding_verification_returns_claims_evidence_and_reliability(tmp_path
         assert report["reliability"]["score"] > 0.0
         assert any(claim["supported"] for claim in report["claims"])
         assert any(item["matched_evidence"] for item in report["claim_evidence"])
+
+
+def test_explicit_candidate_retrieval_and_rrf_reranking(tmp_path):
+    database_path = tmp_path / "rrf.db"
+    engine = create_engine(f"sqlite:///{database_path.resolve().as_posix()}")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        user = _create_user(session, email="rrf_user@example.com")
+
+        doc1 = Document(
+            title="Return Policy",
+            owner_id=user.id,
+            status="COMPLETED",
+            content="Items can be returned within 14 days of delivery in original packaging.",
+            metadata_json={"filename": "Return_Policy.pdf", "category": "Policy"},
+        )
+        session.add(doc1)
+        session.commit()
+        session.refresh(doc1)
+
+        chunk1 = DocumentChunk(
+            document_id=doc1.id,
+            chunk_index=1,
+            content="Items can be returned within 14 days of delivery in original packaging.",
+            metadata_json={"embedding": [0.9, 0.1, 0.0, 0.0]},
+        )
+        session.add(chunk1)
+        session.commit()
+
+        service = RetrievalService(db=session, user_id=user.id)
+
+        # Stage 1: Candidate retrieval
+        candidates = service.retrieve_candidates("returned within 14 days", candidate_pool_size=10)
+        assert len(candidates) >= 1
+        assert "lexical_score" in candidates[0]
+        assert "vector_score" in candidates[0]
+
+        # Stage 2: Explicit RRF Re-ranking
+        reranked = service.rerank(candidates, query="returned within 14 days", top_k=5)
+        assert len(reranked) >= 1
+        assert reranked[0]["document_id"] == doc1.id
+        assert "rrf_score" in reranked[0]
+        assert "lexical_rank" in reranked[0]
+        assert "vector_rank" in reranked[0]
+        assert reranked[0]["similarity_score"] > 0.0
+

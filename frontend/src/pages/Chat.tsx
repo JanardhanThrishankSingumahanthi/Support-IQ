@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { DocumentEvidenceModal } from '../components/evidence/DocumentEvidenceModal'
 import {
   GeneratingState,
   HumanEscalationState,
@@ -522,46 +523,16 @@ export function Chat() {
         </div>
       </div>
 
-      {/* Citation Document Preview Modal */}
-      {previewCitation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl rounded-2xl border border-slate-800 bg-[#0c1424] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-cyan-400">📄</span>
-                <h3 className="text-sm font-bold text-white">{previewCitation.document_title}</h3>
-                {previewCitation.page && (
-                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
-                    Page {previewCitation.page}
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewCitation(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-xs text-slate-100 leading-relaxed">
-              <p className="text-[10px] font-semibold text-cyan-300 uppercase tracking-wider mb-1">
-                Verified Grounding Evidence:
-              </p>
-              <p>"{previewCitation.quote}"</p>
-            </div>
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setPreviewCitation(null)}
-                className="rounded-xl bg-slate-800 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-700 transition"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Full Document Evidence Viewer Modal matching Image 11 Screen 4 */}
+      <DocumentEvidenceModal
+        isOpen={Boolean(previewCitation)}
+        onClose={() => setPreviewCitation(null)}
+        documentTitle={previewCitation?.document_title || 'Return_Policy.pdf'}
+        initialPage={previewCitation?.page || 1}
+        totalPages={12}
+        highlightText={previewCitation?.quote}
+        citationEvidence={previewCitation}
+      />
     </div>
   )
 }

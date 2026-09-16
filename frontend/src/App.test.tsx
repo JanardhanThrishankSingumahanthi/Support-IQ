@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from './App'
+import { DocumentEvidenceModal } from './components/evidence/DocumentEvidenceModal'
 
 function makeSession() {
   localStorage.setItem(
@@ -196,4 +197,31 @@ describe('SupportIQ app routes and core interfaces', () => {
       expect(screen.getByText(/all systems secure/i)).toBeInTheDocument()
     })
   })
+
+  it('renders DocumentEvidenceModal matching Image 11 Screen 4 with page flipper, zoom controls, and highlights', () => {
+    render(
+      <DocumentEvidenceModal
+        isOpen={true}
+        onClose={vi.fn()}
+        documentTitle="Return_Policy.pdf"
+        initialPage={1}
+        totalPages={12}
+        citationEvidence={{
+          quote: 'To be eligible for a return, the product must be unused',
+          page: 1,
+          match_percent: 94,
+          document_title: 'Return_Policy.pdf',
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Return_Policy.pdf').length).toBeGreaterThan(0)
+    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.getByTitle(/previous page/i)).toBeInTheDocument()
+    expect(screen.getByTitle(/next page/i)).toBeInTheDocument()
+    expect(screen.getByTitle(/zoom in/i)).toBeInTheDocument()
+    expect(screen.getByTitle(/zoom out/i)).toBeInTheDocument()
+    expect(screen.getByText(/verified grounding evidence/i)).toBeInTheDocument()
+  })
 })
+

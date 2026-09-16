@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DonutGauge } from '../components/charts/Charts'
+import { DocumentEvidenceModal } from '../components/evidence/DocumentEvidenceModal'
 import { getStoredSession } from '../lib/auth'
 import type { DocumentRecord, KnowledgeBaseStats } from '../types'
 
@@ -28,6 +29,8 @@ export function KnowledgeBase() {
   const [uploading, setUploading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [evidenceModalOpen, setEvidenceModalOpen] = useState(false)
+  const [viewerPage, setViewerPage] = useState(2)
 
   const fetchStatsAndDocs = async () => {
     if (!session?.token) return
@@ -507,11 +510,22 @@ export function KnowledgeBase() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">Document Preview</h3>
-            <span className="text-[11px] text-cyan-400 cursor-pointer hover:underline">Full View</span>
+            <button
+              type="button"
+              onClick={() => setEvidenceModalOpen(true)}
+              className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1"
+            >
+              <span>Full View</span>
+              <span>↗</span>
+            </button>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2 font-bold text-white text-sm">
+          <div
+            onClick={() => setEvidenceModalOpen(true)}
+            className="cursor-pointer group"
+            title="Click to open full document evidence viewer"
+          >
+            <div className="flex items-center gap-2 font-bold text-white text-sm group-hover:text-cyan-300 transition">
               <span className="text-cyan-400">📄</span>
               <span>{activeDocument?.title}</span>
             </div>
@@ -521,7 +535,11 @@ export function KnowledgeBase() {
           </div>
 
           {/* Highlighted Chunk Viewer */}
-          <div className="rounded-xl border border-cyan-500/30 bg-[#061224] p-4 text-xs text-slate-200 leading-relaxed shadow-inner">
+          <div
+            onClick={() => setEvidenceModalOpen(true)}
+            className="rounded-xl border border-cyan-500/30 bg-[#061224] p-4 text-xs text-slate-200 leading-relaxed shadow-inner cursor-pointer hover:border-cyan-400/60 transition"
+            title="Click to inspect in Full Evidence Viewer"
+          >
             <div className="font-bold text-cyan-300 mb-2">3. REFUND POLICY</div>
             <div className="bg-cyan-500/20 border-l-2 border-cyan-400 pl-2 py-1 text-cyan-100 rounded">
               "Annual subscriptions may be refunded within 14 days of purchase, provided the service has not been
@@ -534,11 +552,27 @@ export function KnowledgeBase() {
 
           {/* Page nav */}
           <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-            <button type="button" className="p-1 hover:text-white">
+            <button
+              type="button"
+              onClick={() => setViewerPage((p) => Math.max(1, p - 1))}
+              disabled={viewerPage <= 1}
+              className="p-1 hover:text-white disabled:opacity-30"
+            >
               ‹
             </button>
-            <span className="font-medium text-slate-300">Page 2 / 12</span>
-            <button type="button" className="p-1 hover:text-white">
+            <button
+              type="button"
+              onClick={() => setEvidenceModalOpen(true)}
+              className="font-medium text-slate-300 hover:text-cyan-300 transition"
+            >
+              Page {viewerPage} / 12
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewerPage((p) => Math.min(12, p + 1))}
+              disabled={viewerPage >= 12}
+              className="p-1 hover:text-white disabled:opacity-30"
+            >
               ›
             </button>
           </div>
@@ -572,6 +606,22 @@ export function KnowledgeBase() {
           </div>
         </div>
       </div>
+
+      {/* Full Document Evidence Viewer Modal matching Image 11 Screen 4 */}
+      <DocumentEvidenceModal
+        isOpen={evidenceModalOpen}
+        onClose={() => setEvidenceModalOpen(false)}
+        documentTitle={activeDocument?.title || 'Return_Policy.pdf'}
+        initialPage={viewerPage}
+        totalPages={12}
+        documentContent={activeDocument?.preview}
+        citationEvidence={{
+          document_title: activeDocument?.title,
+          quote: activeDocument?.preview,
+          page: viewerPage,
+          match_percent: 94,
+        }}
+      />
     </div>
   )
 }

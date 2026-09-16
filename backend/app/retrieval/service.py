@@ -228,15 +228,14 @@ class RetrievalService:
         chunk.metadata_json["embedding"] = vector
         return vector
 
-    def retrieve(
+    def retrieve_candidates(
         self,
         query: str,
-        top_k: int = 5,
-        retrieval_method: str = "hybrid",
+        candidate_pool_size: int = 25,
     ) -> list[dict[str, Any]]:
+        """Stage 1: Retrieve candidate chunks across verified documents via lexical and semantic indexing."""
         query_text = normalize_text(query)
         query_tokens = tokenize(query_text)
-        started_at = time.perf_counter()
         documents = self._query_documents().all()
 
         candidates: list[dict[str, Any]] = []
@@ -251,15 +250,8 @@ class RetrievalService:
                 query_embedding = _hash_vector(query_tokens)
                 vector_score = cosine_similarity(query_embedding, chunk_embedding)
                 lexical = lexical_score(query_tokens, chunk_text)
-                hybrid = (0.65 * lexical) + (0.35 * max(vector_score, 0.0))
 
-                score_map = {
-                    "lexical": lexical,
-                    "vector": max(vector_score, 0.0),
-                    "hybrid": hybrid,
-                }
-                score = score_map.get(retrieval_method.lower(), hybrid)
-                if score <= 0:
+                if lexical <= 0 and vector_score <= 0.01:
                     continue
 
                 candidates.append(
@@ -269,8 +261,6 @@ class RetrievalService:
                         "chunk_id": chunk.id,
                         "chunk_index": chunk.chunk_index,
                         "content": chunk_text[:800],
-                        "retrieval_method": retrieval_method.lower(),
-                        "similarity_score": round(float(score), 6),
                         "lexical_score": round(float(lexical), 6),
                         "vector_score": round(float(max(vector_score, 0.0)), 6),
                         "matched_terms": sorted(set(query_tokens).intersection(set(chunk_tokens))),
@@ -278,10 +268,89 @@ class RetrievalService:
                     }
                 )
 
-        ranked = sorted(candidates, key=lambda item: item["similarity_score"], reverse=True)[:top_k]
+        # Pre-filter candidate pool if excessively large
+        if len(candidates) > candidate_pool_size:
+            candidates.sort(key=lambda item: (item["lexical_score"] + item["vector_score"]), reverse=True)
+            candidates = candidates[:candidate_pool_size]
+
+        return candidates
+
+    def rerank(
+        self,
+        candidates: list[dict[str, Any]],
+        query: str,
+        top_k: int = 5,
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        """Stage 2: Re-rank candidate chunks using Reciprocal Rank Fusion (RRF) between lexical and vector signals."""
+        if not candidates:
+            return []
+
+        # Rank candidates along lexical stream
+        by_lexical = sorted(candidates, key=lambda item: item["lexical_score"], reverse=True)
+        lexical_ranks = {item["chunk_id"]: idx for idx, item in enumerate(by_lexical, start=1)}
+
+        # Rank candidates along vector stream
+        by_vector = sorted(candidates, key=lambda item: item["vector_score"], reverse=True)
+        vector_ranks = {item["chunk_id"]: idx for idx, item in enumerate(by_vector, start=1)}
+
+        reranked: list[dict[str, Any]] = []
+        for item in candidates:
+            chunk_id = item["chunk_id"]
+            r_lex = lexical_ranks.get(chunk_id, len(candidates) + 1)
+            r_vec = vector_ranks.get(chunk_id, len(candidates) + 1)
+
+            # Standard Reciprocal Rank Fusion with weighted lexical and semantic channels
+            rrf_score = (0.60 / (rrf_k + r_lex)) + (0.40 / (rrf_k + r_vec))
+
+            # Maintain a normalized composite similarity_score for backwards compatibility with thresholds
+            raw_hybrid = (0.65 * item["lexical_score"]) + (0.35 * item["vector_score"])
+            # Scale RRF to align with hybrid evidence thresholds
+            combined_score = max(raw_hybrid, rrf_score * 30.0)
+
+            enriched = dict(item)
+            enriched.update(
+                {
+                    "retrieval_method": "hybrid",
+                    "lexical_rank": r_lex,
+                    "vector_rank": r_vec,
+                    "rrf_score": round(float(rrf_score), 6),
+                    "similarity_score": round(float(combined_score), 6),
+                }
+            )
+            reranked.append(enriched)
+
+        reranked.sort(key=lambda item: (item["rrf_score"], item["similarity_score"]), reverse=True)
+        return reranked[:top_k]
+
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        retrieval_method: str = "hybrid",
+    ) -> list[dict[str, Any]]:
+        """Execute full 2-stage retrieval: candidate gathering followed by RRF re-ranking."""
+        started_at = time.perf_counter()
+        candidates = self.retrieve_candidates(query=query, candidate_pool_size=max(top_k * 4, 25))
+
+        if retrieval_method.lower() == "lexical":
+            ranked = sorted(candidates, key=lambda item: item["lexical_score"], reverse=True)[:top_k]
+            for item in ranked:
+                item["retrieval_method"] = "lexical"
+                item["similarity_score"] = item["lexical_score"]
+        elif retrieval_method.lower() == "vector":
+            ranked = sorted(candidates, key=lambda item: item["vector_score"], reverse=True)[:top_k]
+            for item in ranked:
+                item["retrieval_method"] = "vector"
+                item["similarity_score"] = item["vector_score"]
+        else:
+            # Default to Stage 2 Reciprocal Rank Fusion
+            ranked = self.rerank(candidates=candidates, query=query, top_k=top_k)
+
+        latency_ms = round((time.perf_counter() - started_at) * 1000, 3)
         for index, item in enumerate(ranked, start=1):
             item["rank"] = index
-            item["latency_ms"] = round((time.perf_counter() - started_at) * 1000, 3)
+            item["latency_ms"] = latency_ms
 
         if ranked:
             self.db.commit()
