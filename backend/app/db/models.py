@@ -113,10 +113,10 @@ class Document(Base, TimestampMixin):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
 
     owner: Mapped[User | None] = relationship(back_populates="documents")
-    versions: Mapped[list["DocumentVersion"]] = relationship(back_populates="document")
-    chunks: Mapped[list["DocumentChunk"]] = relationship(back_populates="document")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="document")
-    evidence: Mapped[list["Evidence"]] = relationship(back_populates="document")
+    versions: Mapped[list["DocumentVersion"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    chunks: Mapped[list["DocumentChunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    citations: Mapped[list["Citation"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    evidence: Mapped[list["Evidence"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
 
 class DocumentVersion(Base, TimestampMixin):
@@ -145,8 +145,8 @@ class DocumentChunk(Base, TimestampMixin):
     metadata_json: Mapped[dict | None] = mapped_column(JSON)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk")
-    evidence: Mapped[list["Evidence"]] = relationship(back_populates="chunk")
+    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk", cascade="all, delete-orphan")
+    evidence: Mapped[list["Evidence"]] = relationship(back_populates="chunk", cascade="all, delete-orphan")
 
     __table_args__ = (Index("ix_document_chunks_document_version_idx", "document_id", "version_id"),)
 

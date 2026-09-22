@@ -236,6 +236,7 @@ def escalate_ticket(ticket_id: int = Path(..., gt=0), payload: TicketEscalateReq
     return serialize_ticket(ticket)
 
 
+@router.put("/{ticket_id}")
 @router.patch("/{ticket_id}")
 def update_ticket(ticket_id: int = Path(..., gt=0), payload: TicketUpdateRequest = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()

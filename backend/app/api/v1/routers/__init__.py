@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.routers.analytics.routes import router as analytics_router
 from app.api.v1.routers.auth.routes import router as auth_router
 from app.api.v1.routers.chat.routes import router as chat_router
 from app.api.v1.routers.conversations.routes import router as conversations_router
@@ -12,6 +13,7 @@ from app.api.v1.routers.support_tickets.routes import router as support_tickets_
 from app.api.v1.routers.users.routes import router as users_router
 
 api_router = APIRouter()
+api_router.include_router(analytics_router)
 api_router.include_router(auth_router)
 api_router.include_router(chat_router)
 api_router.include_router(conversations_router)

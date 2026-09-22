@@ -190,7 +190,10 @@ def list_documents(
     category: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
 ):
-    query = db.query(Document).filter(Document.owner_id == current_user.id)
+    query = db.query(Document)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name in ["Administrator", "Support Agent", "Agent"]))
+    if not is_privileged:
+        query = query.filter((Document.owner_id == current_user.id) | (Document.owner_id.is_(None)))
     if category:
         query = query.filter(Document.metadata_json.op("->>")("category") == category)
     if status_filter:
@@ -216,10 +219,26 @@ def get_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    document = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
+    query = db.query(Document).filter(Document.id == document_id)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name in ["Administrator", "Support Agent", "Agent"]))
+    if not is_privileged:
+        query = query.filter((Document.owner_id == current_user.id) | (Document.owner_id.is_(None)))
+    document = query.first()
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "not_found", "message": "Document was not found."})
-    return serialize_document(document)
+    doc_dict = serialize_document(document)
+    doc_dict["content"] = document.content or ""
+    doc_dict["chunks"] = [
+        {
+            "id": c.id,
+            "chunk_index": c.chunk_index,
+            "content": c.content,
+            "page": (c.metadata_json or {}).get("page", c.chunk_index + 1),
+            "metadata": c.metadata_json or {},
+        }
+        for c in sorted(document.chunks, key=lambda x: x.chunk_index)
+    ]
+    return doc_dict
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -349,7 +368,11 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    document = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
+    query = db.query(Document).filter(Document.id == document_id)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name == "Administrator"))
+    if not is_privileged:
+        query = query.filter(Document.owner_id == current_user.id)
+    document = query.first()
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "not_found", "message": "Document was not found."})
     storage_path = (document.metadata_json or {}).get("storage_path")

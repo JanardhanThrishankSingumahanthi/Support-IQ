@@ -9,17 +9,17 @@ const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 export function KnowledgeBase() {
   const session = getStoredSession()
   const [stats, setStats] = useState<KnowledgeBaseStats>({
-    total_documents: 248,
-    indexed_documents: 242,
-    indexed_percentage: 97.6,
-    total_chunks: 18436,
-    last_updated: '11 Sep 2026, 10:24 AM',
-    storage_used_bytes: 1288490188,
-    storage_used_mb: 1228.8,
-    storage_used_gb: 1.2,
+    total_documents: 0,
+    indexed_documents: 0,
+    indexed_percentage: 0,
+    total_chunks: 0,
+    last_updated: 'Just now',
+    storage_used_bytes: 0,
+    storage_used_mb: 0,
+    storage_used_gb: 0,
     storage_quota_gb: 5.0,
-    storage_percentage: 24,
-    categories: { Product: 62, Policy: 38, FAQ: 45, Technical: 27, Others: 76 },
+    storage_percentage: 0,
+    categories: { Product: 0, Policy: 0, FAQ: 0, Technical: 0, Others: 0 },
   })
 
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
@@ -30,7 +30,7 @@ export function KnowledgeBase() {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [evidenceModalOpen, setEvidenceModalOpen] = useState(false)
-  const [viewerPage, setViewerPage] = useState(2)
+  const [viewerPage] = useState(1)
 
   const fetchStatsAndDocs = async () => {
     if (!session?.token) return
@@ -41,12 +41,7 @@ export function KnowledgeBase() {
       })
       if (statsRes.ok) {
         const statsData = await statsRes.json()
-        setStats((prev) => ({
-          ...prev,
-          ...statsData,
-          total_documents: Math.max(prev.total_documents, statsData.total_documents),
-          total_chunks: Math.max(prev.total_chunks, statsData.total_chunks),
-        }))
+        setStats(statsData)
       }
 
       const docsRes = await fetch(`${apiBase}/api/v1/documents?page=1&page_size=50`, {
@@ -55,13 +50,13 @@ export function KnowledgeBase() {
       if (docsRes.ok) {
         const docsData = await docsRes.json()
         const items = docsData.items || []
+        setDocuments(items)
         if (items.length > 0) {
-          setDocuments(items)
           setSelectedDoc(items[0])
         }
       }
     } catch {
-      // Fallback sample documents matching Image 5
+      // Ignore network errors
     }
   }
 
@@ -114,99 +109,9 @@ export function KnowledgeBase() {
     }
   }
 
-  // Fallback documents if backend has empty or unseeded rows
-  const displayDocs =
-    documents.length > 0
-      ? documents
-      : [
-          {
-            id: 1,
-            title: 'Return_Policy.pdf',
-            filename: 'Return_Policy.pdf',
-            file_type: 'pdf',
-            size: 2516582,
-            category: 'Policy',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 214,
-            uploaded_at: '2026-09-11T10:24:00Z',
-            updated_at: '2026-09-11T10:24:00Z',
-            preview:
-              '3. REFUND POLICY: Annual subscriptions may be refunded within 14 days of purchase, provided the service has not been substantially used.',
-          },
-          {
-            id: 2,
-            title: 'Terms_of_Service.pdf',
-            filename: 'Terms_of_Service.pdf',
-            file_type: 'pdf',
-            size: 1887436,
-            category: 'Policy',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 188,
-            uploaded_at: '2026-09-10T16:15:00Z',
-            updated_at: '2026-09-10T16:15:00Z',
-            preview: 'Legal terms and conditions governing service usage and security.',
-          },
-          {
-            id: 3,
-            title: 'Product_Warranty.pdf',
-            filename: 'Product_Warranty.pdf',
-            file_type: 'pdf',
-            size: 3250585,
-            category: 'Product',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 310,
-            uploaded_at: '2026-09-09T11:20:00Z',
-            updated_at: '2026-09-09T11:20:00Z',
-            preview: 'Hardware warranty terms and extended coverage procedures.',
-          },
-          {
-            id: 4,
-            title: 'Customer_FAQ.pdf',
-            filename: 'Customer_FAQ.pdf',
-            file_type: 'pdf',
-            size: 1258291,
-            category: 'FAQ',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 142,
-            uploaded_at: '2026-09-08T15:45:00Z',
-            updated_at: '2026-09-08T15:45:00Z',
-            preview: 'Frequently asked customer questions and standard answers.',
-          },
-          {
-            id: 5,
-            title: 'Payment_Guide.docx',
-            filename: 'Payment_Guide.docx',
-            file_type: 'docx',
-            size: 1003520,
-            category: 'Billing',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 94,
-            uploaded_at: '2026-09-07T10:10:00Z',
-            updated_at: '2026-09-07T10:10:00Z',
-            preview: 'Payment methods, billing cycles, and invoice retrieval guide.',
-          },
-          {
-            id: 6,
-            title: 'Account_Management.pdf',
-            filename: 'Account_Management.pdf',
-            file_type: 'pdf',
-            size: 2097152,
-            category: 'Technical',
-            version: 1,
-            status: 'INDEXED',
-            chunk_count: 176,
-            uploaded_at: '2026-09-06T14:30:00Z',
-            updated_at: '2026-09-06T14:30:00Z',
-            preview: 'Account security, multi-factor authentication, and permission settings.',
-          },
-        ]
-
-  const activeDocument = selectedDoc || displayDocs[0]
+  // Use actual database documents
+  const displayDocs = documents
+  const activeDocument = selectedDoc || (documents.length > 0 ? documents[0] : null)
 
   const filteredDocs = displayDocs.filter((doc) => {
     const matchesSearch = `${doc.title} ${doc.category}`.toLowerCase().includes(search.toLowerCase())
@@ -510,100 +415,83 @@ export function KnowledgeBase() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">Document Preview</h3>
-            <button
-              type="button"
-              onClick={() => setEvidenceModalOpen(true)}
-              className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1"
-            >
-              <span>Full View</span>
-              <span>↗</span>
-            </button>
+            {activeDocument && (
+              <button
+                type="button"
+                onClick={() => setEvidenceModalOpen(true)}
+                className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1"
+              >
+                <span>Full View</span>
+                <span>↗</span>
+              </button>
+            )}
           </div>
 
-          <div
-            onClick={() => setEvidenceModalOpen(true)}
-            className="cursor-pointer group"
-            title="Click to open full document evidence viewer"
-          >
-            <div className="flex items-center gap-2 font-bold text-white text-sm group-hover:text-cyan-300 transition">
-              <span className="text-cyan-400">📄</span>
-              <span>{activeDocument?.title}</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {(activeDocument?.size / (1024 * 1024)).toFixed(1)} MB • 12 pages
-            </p>
-          </div>
+          {activeDocument ? (
+            <>
+              <div
+                onClick={() => setEvidenceModalOpen(true)}
+                className="cursor-pointer group"
+                title="Click to open full document evidence viewer"
+              >
+                <div className="flex items-center gap-2 font-bold text-white text-sm group-hover:text-cyan-300 transition">
+                  <span className="text-cyan-400">📄</span>
+                  <span className="truncate">{activeDocument.title}</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {(activeDocument.size / (1024 * 1024)).toFixed(2)} MB • {activeDocument.chunk_count || 1} chunks
+                </p>
+              </div>
 
-          {/* Highlighted Chunk Viewer */}
-          <div
-            onClick={() => setEvidenceModalOpen(true)}
-            className="rounded-xl border border-cyan-500/30 bg-[#061224] p-4 text-xs text-slate-200 leading-relaxed shadow-inner cursor-pointer hover:border-cyan-400/60 transition"
-            title="Click to inspect in Full Evidence Viewer"
-          >
-            <div className="font-bold text-cyan-300 mb-2">3. REFUND POLICY</div>
-            <div className="bg-cyan-500/20 border-l-2 border-cyan-400 pl-2 py-1 text-cyan-100 rounded">
-              "Annual subscriptions may be refunded within 14 days of purchase, provided the service has not been
-              substantially used."
-            </div>
-            <p className="mt-2 text-slate-300">
-              Refund requests are typically processed within 5-7 business days to the original payment method.
-            </p>
-          </div>
+              {/* Highlighted Chunk Viewer */}
+              <div
+                onClick={() => setEvidenceModalOpen(true)}
+                className="rounded-xl border border-cyan-500/30 bg-[#061224] p-4 text-xs text-slate-200 leading-relaxed shadow-inner cursor-pointer hover:border-cyan-400/60 transition"
+                title="Click to inspect in Full Evidence Viewer"
+              >
+                <div className="font-bold text-cyan-300 mb-2 truncate">{activeDocument.title}</div>
+                <div className="bg-cyan-500/10 border-l-2 border-cyan-400 pl-2.5 py-1.5 text-cyan-100 rounded text-xs">
+                  {activeDocument.preview || 'Document extracted and indexed into vector store.'}
+                </div>
+              </div>
 
-          {/* Page nav */}
-          <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-            <button
-              type="button"
-              onClick={() => setViewerPage((p) => Math.max(1, p - 1))}
-              disabled={viewerPage <= 1}
-              className="p-1 hover:text-white disabled:opacity-30"
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              onClick={() => setEvidenceModalOpen(true)}
-              className="font-medium text-slate-300 hover:text-cyan-300 transition"
-            >
-              Page {viewerPage} / 12
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewerPage((p) => Math.min(12, p + 1))}
-              disabled={viewerPage >= 12}
-              className="p-1 hover:text-white disabled:opacity-30"
-            >
-              ›
-            </button>
-          </div>
-
-          {/* Metadata details */}
-          <div className="border-t border-slate-800 pt-3 text-[11px] space-y-1.5 text-slate-400">
-            <div className="flex justify-between">
-              <span>File name:</span>
-              <span className="text-slate-200 font-medium truncate max-w-[150px]">{activeDocument?.title}</span>
+              {/* Metadata details */}
+              <div className="border-t border-slate-800 pt-3 text-[11px] space-y-1.5 text-slate-400">
+                <div className="flex justify-between">
+                  <span>File name:</span>
+                  <span className="text-slate-200 font-medium truncate max-w-[150px]">
+                    {activeDocument.filename || activeDocument.title}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Category:</span>
+                  <span className="text-slate-200 font-medium">{activeDocument.category}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Uploaded:</span>
+                  <span className="text-slate-200 font-medium">
+                    {new Date(activeDocument.uploaded_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Status:</span>
+                  <span className="text-emerald-400 font-medium">{activeDocument.status}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Chunks:</span>
+                  <span className="text-slate-200 font-medium">{activeDocument.chunk_count || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Embedding:</span>
+                  <span className="text-cyan-400 font-medium">all-MiniLM-L6-v2</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-400">
+              No document selected. Upload or select a document from the table.
             </div>
-            <div className="flex justify-between">
-              <span>Category:</span>
-              <span className="text-slate-200 font-medium">{activeDocument?.category}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Uploaded by:</span>
-              <span className="text-slate-200 font-medium">Janardhan</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Status:</span>
-              <span className="text-emerald-400 font-medium">Indexed</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Chunks:</span>
-              <span className="text-slate-200 font-medium">{activeDocument?.chunk_count || 214}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Embedding model:</span>
-              <span className="text-cyan-400 font-medium">text-embedding-3-large</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -611,16 +499,21 @@ export function KnowledgeBase() {
       <DocumentEvidenceModal
         isOpen={evidenceModalOpen}
         onClose={() => setEvidenceModalOpen(false)}
-        documentTitle={activeDocument?.title || 'Return_Policy.pdf'}
+        documentId={activeDocument?.id}
+        documentTitle={activeDocument?.title || 'Document'}
         initialPage={viewerPage}
-        totalPages={12}
         documentContent={activeDocument?.preview}
-        citationEvidence={{
-          document_title: activeDocument?.title,
-          quote: activeDocument?.preview,
-          page: viewerPage,
-          match_percent: 94,
-        }}
+        citationEvidence={
+          activeDocument
+            ? {
+                document_id: activeDocument.id,
+                document_title: activeDocument.title,
+                quote: activeDocument.preview,
+                page: viewerPage,
+                match_percent: 100,
+              }
+            : null
+        }
       />
     </div>
   )

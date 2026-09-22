@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class ChatMessageRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     conversation_id: int | None = None
     content: str = Field(min_length=1, max_length=12000)
     title: str | None = Field(default=None, min_length=1, max_length=255)
@@ -153,7 +154,7 @@ def chat_message(
                 "page": page_num,
                 "quote": (chunk.get("content") or "")[:250],
                 "score": chunk.get("similarity_score"),
-                "match_percent": int(min(100, (chunk.get("similarity_score", 0) * 100) + 15)),
+                "match_percent": int(round(max(0.0, min(1.0, float(chunk.get("similarity_score", 0.0) or 0.0))) * 100)),
             }
         )
 

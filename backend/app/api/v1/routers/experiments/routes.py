@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_pagination
@@ -40,6 +40,8 @@ VALID_STATES = {"QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"}
 
 
 class ExperimentCreateRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     model_name: str | None = None
@@ -59,6 +61,8 @@ class ExperimentUpdateRequest(BaseModel):
 
 
 class ExperimentRunRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_name: str | None = None
     dataset_name: str | None = None
     model_variant: str | None = None

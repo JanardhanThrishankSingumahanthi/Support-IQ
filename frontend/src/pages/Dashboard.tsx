@@ -8,63 +8,40 @@ const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 export function Dashboard() {
   const navigate = useNavigate()
   const session = getStoredSession()
-  const userName = session?.user?.full_name?.split(' ')[0] || 'Janardhan'
+  const userName = session?.user?.full_name?.split(' ')[0] || 'User'
 
-  const [stats] = useState({
-    queriesResolved: 42,
-    documentsUsed: 18,
-    accuracy: 96,
-    activeUsers: 28,
+  const [stats, setStats] = useState({
+    queriesResolved: 0,
+    documentsUsed: 0,
+    accuracy: 0,
+    activeUsers: 1,
+    ticketsCount: 0,
+    chunksCount: 0,
   })
 
-  const [recentChats, setRecentChats] = useState<any[]>([
+  const [recentChats, setRecentChats] = useState<any[]>([])
+  const [trendLabels, setTrendLabels] = useState<string[]>([])
+  const [trendSeries, setTrendSeries] = useState<any[]>([
     {
-      id: 1,
-      title: 'How to reset my account password?',
-      preview: 'Here are the steps to reset your password...',
-      time: '10:24 AM',
-      status: 'Resolved',
-    },
-    {
-      id: 2,
-      title: 'Refund policy for annual subscription',
-      preview: 'According to our policy, annual subscriptions...',
-      time: 'Yesterday',
-      status: 'Resolved',
-    },
-    {
-      id: 3,
-      title: 'System not working after update',
-      preview: 'This issue can be fixed by clearing the cache...',
-      time: '9 Sep 2026',
-      status: 'Resolved',
-    },
-    {
-      id: 4,
-      title: 'Data privacy and security',
-      preview: 'We follow industry-standard security practices...',
-      time: '8 Sep 2026',
-      status: 'Resolved',
-    },
-    {
-      id: 5,
-      title: 'How to integrate with third-party tools?',
-      preview: 'You can integrate using our REST API...',
-      time: '7 Sep 2026',
-      status: 'In Progress',
+      name: 'Resolved Queries',
+      color: '#06b6d4',
+      values: [],
     },
   ])
+  const [queryCategories, setQueryCategories] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     if (!session?.token) return
+    setIsLoading(true)
 
-    // Fetch live conversations from API
+    // 1. Fetch live conversations from API
     fetch(`${apiBase}/api/v1/conversations?page=1&page_size=5`, {
       headers: { Authorization: `Bearer ${session.token}` },
     })
       .then((res) => res.json())
       .then((data) => {
-        if (data.items && data.items.length > 0) {
+        if (data.items) {
           const mapped = data.items.map((c: any) => ({
             id: c.id,
             title: c.title || 'Support Query',
@@ -76,26 +53,56 @@ export function Dashboard() {
         }
       })
       .catch(() => {})
+
+    // 2. Fetch live dashboard metrics
+    Promise.all([
+      fetch(`${apiBase}/api/v1/analytics/dashboard`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      }),
+      fetch(`${apiBase}/api/v1/analytics/overview`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      }),
+    ])
+      .then(async ([dashRes, overRes]) => {
+        const dData = dashRes.ok ? await dashRes.json() : null
+        const oData = overRes.ok ? await overRes.json() : null
+
+        if (dData) {
+          setStats((prev) => ({
+            ...prev,
+            queriesResolved: dData.queries_resolved || 0,
+            documentsUsed: dData.documents_used || 0,
+            accuracy: dData.accuracy_percent || 0,
+            activeUsers: dData.active_users || 1,
+          }))
+
+          if (dData.trend_labels && dData.trend_values) {
+            setTrendLabels(dData.trend_labels)
+            setTrendSeries([
+              {
+                name: 'Resolved Queries',
+                color: '#06b6d4',
+                values: dData.trend_values,
+              },
+            ])
+          }
+
+          if (dData.categories && dData.categories.length > 0) {
+            setQueryCategories(dData.categories)
+          }
+        }
+
+        if (oData) {
+          setStats((prev) => ({
+            ...prev,
+            ticketsCount: oData.total_tickets || 0,
+            chunksCount: (oData.top_documents || []).reduce((acc: number, d: any) => acc + (d.chunk_count || 0), 0),
+          }))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false))
   }, [session?.token])
-
-  // Trend line data matching Image 3 (Sep 5 to Sep 11)
-  const trendLabels = ['Sep 5', 'Sep 6', 'Sep 7', 'Sep 8', 'Sep 9', 'Sep 10', 'Sep 11']
-  const trendSeries = [
-    {
-      name: 'Resolved Queries',
-      color: '#06b6d4',
-      values: [4, 11, 10, 16, 11, 17, 16],
-    },
-  ]
-
-  // Top query categories matching Image 3
-  const queryCategories = [
-    { label: 'Account Access', percentage: 32, color: '#06b6d4' },
-    { label: 'Billing & Payments', percentage: 24, color: '#0ea5e9' },
-    { label: 'Product Usage', percentage: 18, color: '#10b981' },
-    { label: 'Technical Issues', percentage: 16, color: '#a855f7' },
-    { label: 'Others', percentage: 10, color: '#64748b' },
-  ]
 
   return (
     <div className="space-y-6 pb-12">
@@ -110,7 +117,9 @@ export function Dashboard() {
           </p>
         </div>
         <div className="text-left md:text-right text-xs text-slate-400">
-          <p className="font-semibold text-slate-300">Thursday, 11 Sep 2026</p>
+          <p className="font-semibold text-slate-300">
+            {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
           <p className="text-[11px] text-cyan-400 mt-0.5">Let's make support smarter today!</p>
         </div>
       </div>
@@ -124,7 +133,7 @@ export function Dashboard() {
               💬
             </div>
             <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-              ↑ 12% <span className="text-slate-500 font-normal">vs last week</span>
+              Live DB
             </span>
           </div>
           <div className="mt-3">
@@ -140,7 +149,7 @@ export function Dashboard() {
               📄
             </div>
             <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-              ↑ 8% <span className="text-slate-500 font-normal">vs last week</span>
+              Verified
             </span>
           </div>
           <div className="mt-3">
@@ -156,7 +165,7 @@ export function Dashboard() {
               ⏱
             </div>
             <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-              ↑ 4% <span className="text-slate-500 font-normal">vs last week</span>
+              Reliability
             </span>
           </div>
           <div className="mt-3">
@@ -172,7 +181,7 @@ export function Dashboard() {
               👥
             </div>
             <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-              ↑ 17% <span className="text-slate-500 font-normal">vs last week</span>
+              Active
             </span>
           </div>
           <div className="mt-3">
@@ -239,35 +248,41 @@ export function Dashboard() {
           </div>
 
           <div className="space-y-3">
-            {recentChats.map((chat) => (
-              <div
-                key={chat.id}
-                onClick={() => navigate('/chat')}
-                className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-slate-950/50 p-3 hover:border-slate-700 hover:bg-slate-900/60 transition cursor-pointer"
-              >
-                <div className="flex items-center gap-3 min-w-0 pr-4">
-                  <div className="h-8 w-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 flex-shrink-0">
-                    💬
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-100 truncate">{chat.title}</p>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5">{chat.preview}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="text-[11px] text-slate-500">{chat.time}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium border ${
-                      chat.status === 'Resolved'
-                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                        : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                    }`}
-                  >
-                    {chat.status}
-                  </span>
-                </div>
+            {recentChats.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-500">
+                {isLoading ? 'Loading conversations...' : 'No conversations yet. Start a chat to begin.'}
               </div>
-            ))}
+            ) : (
+              recentChats.map((chat) => (
+                <div
+                  key={chat.id}
+                  onClick={() => navigate('/chat')}
+                  className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-slate-950/50 p-3 hover:border-slate-700 hover:bg-slate-900/60 transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0 pr-4">
+                    <div className="h-8 w-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 flex-shrink-0">
+                      💬
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-100 truncate">{chat.title}</p>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{chat.preview}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-[11px] text-slate-500">{chat.time}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                        chat.status === 'Resolved'
+                          ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                      }`}
+                    >
+                      {chat.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -275,21 +290,21 @@ export function Dashboard() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-4">
             <h3 className="text-sm font-semibold text-white">Knowledge Sources</h3>
-            <Link to="/knowledge" className="text-xs text-cyan-400 hover:underline">
+            <Link to="/documents" className="text-xs text-cyan-400 hover:underline">
               View all
             </Link>
           </div>
 
           <div className="space-y-3">
             {[
-              { title: 'Company Policies', count: '24 documents', icon: '📄', color: 'bg-sky-500/10 text-sky-400' },
-              { title: 'Product Manuals', count: '18 documents', icon: '📗', color: 'bg-emerald-500/10 text-emerald-400' },
-              { title: 'FAQs', count: '32 documents', icon: '❓', color: 'bg-purple-500/10 text-purple-400' },
-              { title: 'Support Tickets', count: '12,450 records', icon: '🗄', color: 'bg-amber-500/10 text-amber-400' },
+              { title: 'Verified Documents', count: `${stats.documentsUsed} documents`, icon: '📄', color: 'bg-sky-500/10 text-sky-400', link: '/documents' },
+              { title: 'Indexed Chunks', count: `${stats.chunksCount} chunks`, icon: '📗', color: 'bg-emerald-500/10 text-emerald-400', link: '/documents' },
+              { title: 'Support Tickets', count: `${stats.ticketsCount} tickets`, icon: '🗄', color: 'bg-amber-500/10 text-amber-400', link: '/tickets' },
+              { title: 'Evaluation Datasets', count: '6 model variants', icon: '⚙', color: 'bg-purple-500/10 text-purple-400', link: '/model-evaluation' },
             ].map((source) => (
               <div
                 key={source.title}
-                onClick={() => navigate('/knowledge')}
+                onClick={() => navigate(source.link)}
                 className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-slate-950/50 p-3 hover:border-slate-700 hover:bg-slate-900/60 transition cursor-pointer"
               >
                 <div className="flex items-center gap-3">
@@ -314,12 +329,15 @@ export function Dashboard() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Query Trends</h3>
-            <select className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 focus:outline-none">
-              <option>Last 7 days</option>
-              <option>Last 30 days</option>
-            </select>
+            <span className="text-[11px] text-slate-400">Last 7 days</span>
           </div>
-          <LineTrendChart series={trendSeries} labels={trendLabels} height={160} />
+          {trendLabels.length > 0 ? (
+            <LineTrendChart series={trendSeries} labels={trendLabels} height={160} />
+          ) : (
+            <div className="flex h-40 items-center justify-center text-xs text-slate-500">
+              No query trend data recorded yet
+            </div>
+          )}
         </div>
 
         {/* Resolution Rate Donut */}
@@ -328,16 +346,22 @@ export function Dashboard() {
             <h3 className="text-sm font-semibold text-white">Resolution Rate</h3>
           </div>
           <div className="my-auto py-2">
-            <DonutGauge percentage={78} size={140} color="#06b6d4" valueText="78%" subtitle="" />
+            <DonutGauge
+              percentage={stats.accuracy || 0}
+              size={140}
+              color="#06b6d4"
+              valueText={stats.accuracy > 0 ? `${stats.accuracy}%` : 'N/A'}
+              subtitle=""
+            />
           </div>
           <div className="flex items-center justify-around text-xs border-t border-slate-800/80 pt-3 text-slate-400">
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-cyan-400" />
-              <span>Resolved</span>
+              <span>Resolved ({stats.accuracy}%)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-slate-600" />
-              <span>Escalated</span>
+              <span>Escalated / Review</span>
             </div>
           </div>
         </div>
@@ -345,7 +369,13 @@ export function Dashboard() {
         {/* Top Query Categories */}
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg">
           <h3 className="text-sm font-semibold text-white mb-4">Top Query Categories</h3>
-          <HorizontalBarList items={queryCategories} />
+          {queryCategories.length > 0 ? (
+            <HorizontalBarList items={queryCategories} />
+          ) : (
+            <div className="flex h-40 items-center justify-center text-xs text-slate-500">
+              No category data available
+            </div>
+          )}
         </div>
       </div>
 

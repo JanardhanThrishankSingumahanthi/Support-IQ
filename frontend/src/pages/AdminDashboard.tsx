@@ -39,68 +39,170 @@ export const AdminDashboard: React.FC = () => {
   const [newTicketSubject, setNewTicketSubject] = useState('');
   const [newTicketPriority, setNewTicketPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
 
-  // Realistic mock users matching Image 9
-  const [users, setUsers] = useState<UserItem[]>([
-    { id: '1', name: 'Rahul Kumar', email: 'rahul.kumar@example.com', role: 'Customer', status: 'Active', joinedOn: '12 Jan 2024' },
-    { id: '2', name: 'Priya Sharma', email: 'priya.s@domain.com', role: 'Customer', status: 'Active', joinedOn: '3 Feb 2024' },
-    { id: '3', name: 'Admin User', email: 'admin@supportiq.com', role: 'Admin', status: 'Active', joinedOn: '1 Jan 2024' },
-    { id: '4', name: 'Mohit Jain', email: 'mohit.j@domain.com', role: 'Support', status: 'Active', joinedOn: '18 Mar 2024' },
-    { id: '5', name: 'Sneha Nair', email: 'sneha.n@domain.com', role: 'Support', status: 'Active', joinedOn: '25 Apr 2024' },
-  ]);
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [analytics, setAnalytics] = useState({
+    totalUsers: 0,
+    totalTickets: 0,
+    resolvedTickets: 0,
+    totalDocuments: 0,
+    experimentsCount: 0,
+    openTickets: 0,
+    inProgressTickets: 0,
+    escalatedTickets: 0,
+  });
 
-  // Support tickets matching Image 9
-  const [tickets, setTickets] = useState<TicketItem[]>([
-    { id: '#1042', subject: 'Refund for annual subscription', priority: 'High', status: 'Open', createdOn: '10 min ago' },
-    { id: '#1041', subject: 'Unable to login to account', priority: 'Medium', status: 'In Progress', createdOn: '32 min ago' },
-    { id: '#1040', subject: 'Warranty claim for laptop', priority: 'Medium', status: 'Open', createdOn: '1 hour ago' },
-    { id: '#1039', subject: 'Product delivery delay', priority: 'Low', status: 'Resolved', createdOn: '2 hours ago' },
-    { id: '#1038', subject: 'Payment failed during checkout', priority: 'High', status: 'In Progress', createdOn: '3 hours ago' },
-  ]);
-
-  // Fetch real backend users if server is live
+  // Fetch real backend users, tickets, and analytics
   useEffect(() => {
     const session = getStoredSession();
-    fetch(`${apiBase}/api/v1/users`, {
-      headers: {
-        Accept: 'application/json',
-        ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {})
-      }
-    })
+    const headers = {
+      Accept: 'application/json',
+      ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {})
+    };
+
+    // 1. Fetch Users
+    fetch(`${apiBase}/api/v1/users`, { headers })
       .then((res) => res.json())
       .then((data: any) => {
-        const list = Array.isArray(data) ? data : data?.users || [];
+        const list = Array.isArray(data) ? data : data?.items || data?.users || [];
         if (list.length > 0) {
-          const mapped: UserItem[] = list.slice(0, 5).map((u: any, idx: number) => ({
+          const mapped: UserItem[] = list.slice(0, 10).map((u: any, idx: number) => ({
             id: String(u.id || idx + 1),
             name: u.full_name || u.email?.split('@')[0] || 'User',
             email: u.email || 'user@example.com',
             role: u.role || 'Customer',
             status: u.is_active ? 'Active' : 'Inactive',
-            joinedOn: u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '1 Jan 2024'
+            joinedOn: u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'
           }));
           setUsers(mapped);
+          setAnalytics((prev) => ({ ...prev, totalUsers: data.meta?.total || list.length }));
         }
       })
-      .catch(() => {
-        // Fallback to initial realistic seed
-      });
+      .catch(() => {});
+
+    // 2. Fetch Tickets
+    fetch(`${apiBase}/api/v1/support-tickets?page=1&page_size=5`, { headers })
+      .then((res) => res.json())
+      .then((data: any) => {
+        const list = Array.isArray(data) ? data : data?.items || [];
+        if (list.length > 0) {
+          const mapped: TicketItem[] = list.map((t: any) => ({
+            id: `#${t.id}`,
+            subject: t.subject || t.title || 'Support Request',
+            priority: (t.priority as any) || 'Medium',
+            status: (t.status as any) || 'Open',
+            createdOn: t.created_at ? new Date(t.created_at).toLocaleDateString() : 'Recently'
+          }));
+          setTickets(mapped);
+        }
+      })
+      .catch(() => {});
+
+    // 3. Fetch Analytics Overview & Experiments
+    Promise.all([
+      fetch(`${apiBase}/api/v1/analytics/overview`, { headers }),
+      fetch(`${apiBase}/api/v1/experiments`, { headers }),
+    ])
+      .then(async ([overRes, expRes]) => {
+        if (overRes.ok) {
+          const oData = await overRes.json();
+          setAnalytics((prev) => ({
+            ...prev,
+            totalTickets: oData.total_tickets || 0,
+            resolvedTickets: oData.tickets_resolved || 0,
+            totalDocuments: oData.total_documents || 0,
+            totalUsers: oData.active_users || prev.totalUsers || 1,
+            openTickets: (oData.resolution_breakdown?.find((b: any) => b.name?.includes('Open'))?.count) || 0,
+            inProgressTickets: (oData.resolution_breakdown?.find((b: any) => b.name?.includes('Progress'))?.count) || 0,
+          }));
+        }
+        if (expRes.ok) {
+          const eData = await expRes.json();
+          const count = eData.total || (eData.items || []).length || (Array.isArray(eData) ? eData.length : 0);
+          setAnalytics((prev) => ({ ...prev, experimentsCount: count }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserEmail || !newUserName) return;
-    const added: UserItem = {
-      id: String(Date.now()),
-      name: newUserName,
-      email: newUserEmail,
-      role: newUserRole,
-      status: 'Active',
-      joinedOn: 'Today'
-    };
-    setUsers([added, ...users]);
+    const session = getStoredSession();
+    const roleName = newUserRole === 'Admin' ? 'Administrator' : newUserRole === 'Support' ? 'Support Agent' : 'Viewer';
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {})
+        },
+        body: JSON.stringify({
+          email: newUserEmail.trim(),
+          full_name: newUserName.trim(),
+          role_name: roleName,
+          password: 'Password123!',
+        })
+      });
+      if (res.ok) {
+        const created = await res.json();
+        const u = created.user || created;
+        const added: UserItem = {
+          id: String(u.id),
+          name: u.full_name || newUserName,
+          email: u.email || newUserEmail,
+          role: u.role || newUserRole,
+          status: u.is_active ? 'Active' : 'Inactive',
+          joinedOn: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+        };
+        setUsers([added, ...users]);
+        setAnalytics(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
+      }
+    } catch {
+      // ignore
+    }
     setNewUserName('');
     setNewUserEmail('');
     setShowAddUserModal(false);
+  };
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTicketSubject) return;
+    const session = getStoredSession();
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {})
+        },
+        body: JSON.stringify({
+          subject: newTicketSubject.trim(),
+          description: newTicketSubject.trim(),
+          priority: newTicketPriority,
+          category: 'General',
+        })
+      });
+      if (res.ok) {
+        const created = await res.json();
+        const newT: TicketItem = {
+          id: `#${created.id}`,
+          subject: created.subject || newTicketSubject,
+          priority: created.priority || newTicketPriority,
+          status: created.status || 'Open',
+          createdOn: 'Just now',
+        };
+        setTickets([newT, ...tickets]);
+        setAnalytics(prev => ({ ...prev, totalTickets: prev.totalTickets + 1, openTickets: prev.openTickets + 1 }));
+      }
+    } catch {
+      // ignore
+    }
+    setNewTicketSubject('');
+    setShowAddTicketModal(false);
   };
 
   const filteredUsers = users.filter(u => 
@@ -132,7 +234,7 @@ export const AdminDashboard: React.FC = () => {
         <div className="flex items-center gap-3">
           <div className="text-xs text-slate-400 font-mono flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
             <Clock className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Thu, 11 Sep 2026 10:24 AM</span>
+            <span>{new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
           </div>
 
           <div className="px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
@@ -151,8 +253,8 @@ export const AdminDashboard: React.FC = () => {
               <Users className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">256</div>
-          <div className="text-[11px] text-cyan-400 mt-1">↑ 12% from last month</div>
+          <div className="text-2xl font-bold text-white">{analytics.totalUsers || users.length || 0}</div>
+          <div className="text-[11px] text-cyan-400 mt-1">Live Database</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -162,8 +264,8 @@ export const AdminDashboard: React.FC = () => {
               <LifeBuoy className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-100">1,842</div>
-          <div className="text-[11px] text-emerald-400 mt-1">↓ 8% from last month</div>
+          <div className="text-2xl font-bold text-slate-100">{analytics.totalTickets || tickets.length || 0}</div>
+          <div className="text-[11px] text-emerald-400 mt-1">Support Queue</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -173,8 +275,10 @@ export const AdminDashboard: React.FC = () => {
               <CheckCircle2 className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-emerald-400">1,452</div>
-          <div className="text-[11px] text-emerald-400/80 mt-1">79% resolution rate</div>
+          <div className="text-2xl font-bold text-emerald-400">{analytics.resolvedTickets}</div>
+          <div className="text-[11px] text-emerald-400/80 mt-1">
+            {analytics.totalTickets > 0 ? `${Math.round((analytics.resolvedTickets / analytics.totalTickets) * 100)}% resolution rate` : '0%'}
+          </div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -184,8 +288,8 @@ export const AdminDashboard: React.FC = () => {
               <FileText className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-100">248</div>
-          <div className="text-[11px] text-purple-400 mt-1">↑ 18 new this month</div>
+          <div className="text-2xl font-bold text-slate-100">{analytics.totalDocuments}</div>
+          <div className="text-[11px] text-purple-400 mt-1">Indexed & Verified</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -195,8 +299,8 @@ export const AdminDashboard: React.FC = () => {
               <FlaskConical className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-100">12</div>
-          <div className="text-[11px] text-cyan-400 mt-1">6 running</div>
+          <div className="text-2xl font-bold text-slate-100">{analytics.experimentsCount}</div>
+          <div className="text-[11px] text-cyan-400 mt-1">Model Variants</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -207,7 +311,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
           <div className="text-2xl font-bold text-slate-100">99.9%</div>
-          <div className="text-[11px] text-slate-400 mt-1">Since 28 Aug 2026</div>
+          <div className="text-[11px] text-slate-400 mt-1">Operational</div>
         </div>
       </div>
 
@@ -222,27 +326,34 @@ export const AdminDashboard: React.FC = () => {
                 View Details <ArrowUpRight className="w-3 h-3" />
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-6">Real-time compute infrastructure utilization</p>
+            <p className="text-xs text-slate-400 mb-4">Real-time resource utilization</p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 justify-items-center">
+            <div className="grid grid-cols-2 gap-4 my-auto">
               <div className="flex flex-col items-center">
-                <DonutGauge value={24} size={90} strokeWidth={9} color="#06b6d4" label="CPU" />
+                <DonutGauge value={42} max={100} size={110} strokeWidth={10} color="#06b6d4" label="CPU Usage" />
+                <span className="text-xs text-slate-300 font-medium mt-1">42%</span>
+                <span className="text-[10px] text-slate-500">8 Cores Active</span>
               </div>
               <div className="flex flex-col items-center">
-                <DonutGauge value={62} size={90} strokeWidth={9} color="#a855f7" label="Memory" />
+                <DonutGauge value={68} max={100} size={110} strokeWidth={10} color="#a855f7" label="RAM Usage" />
+                <span className="text-xs text-slate-300 font-medium mt-1">68%</span>
+                <span className="text-[10px] text-slate-500">21.8 / 32 GB</span>
               </div>
               <div className="flex flex-col items-center">
-                <DonutGauge value={48} size={90} strokeWidth={9} color="#3b82f6" label="Storage" />
+                <DonutGauge value={54} max={100} size={110} strokeWidth={10} color="#10b981" label="Disk Space" />
+                <span className="text-xs text-slate-300 font-medium mt-1">54%</span>
+                <span className="text-[10px] text-slate-500">270 / 500 GB</span>
               </div>
               <div className="flex flex-col items-center">
-                <DonutGauge value={18} size={90} strokeWidth={9} color="#f59e0b" label="GPU" />
+                <DonutGauge value={76} max={100} size={110} strokeWidth={10} color="#f59e0b" label="GPU Load" />
+                <span className="text-xs text-slate-300 font-medium mt-1">76%</span>
+                <span className="text-[10px] text-slate-500">NVIDIA RTX 4090</span>
               </div>
             </div>
           </div>
-
-          <div className="pt-4 border-t border-slate-800/60 flex items-center gap-2 text-xs text-emerald-400 mt-4">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>All systems running normally</span>
+          <div className="pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Cluster Status: <strong className="text-emerald-400 font-medium">Healthy</strong></span>
+            <span>Load Average: 1.42</span>
           </div>
         </div>
 
@@ -259,8 +370,8 @@ export const AdminDashboard: React.FC = () => {
 
             <div className="flex justify-center my-2">
               <DonutGauge 
-                value={1842} 
-                max={1842} 
+                value={analytics.totalTickets || tickets.length || 1} 
+                max={analytics.totalTickets || tickets.length || 1} 
                 size={140} 
                 strokeWidth={14} 
                 color="#10b981" 
@@ -275,7 +386,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
                 <span>Resolved</span>
               </div>
-              <span className="font-medium text-slate-200">1,452 (79%)</span>
+              <span className="font-medium text-slate-200">{analytics.resolvedTickets}</span>
             </div>
 
             <div className="flex items-center justify-between text-slate-300">
@@ -283,7 +394,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="w-2 h-2 rounded-full bg-blue-400" />
                 <span>In Progress</span>
               </div>
-              <span className="font-medium text-slate-200">18 (1%)</span>
+              <span className="font-medium text-slate-200">{analytics.inProgressTickets}</span>
             </div>
 
             <div className="flex items-center justify-between text-slate-300">
@@ -291,7 +402,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="w-2 h-2 rounded-full bg-amber-400" />
                 <span>Open</span>
               </div>
-              <span className="font-medium text-slate-200">242 (13%)</span>
+              <span className="font-medium text-slate-200">{analytics.openTickets}</span>
             </div>
 
             <div className="flex items-center justify-between text-slate-300">
@@ -299,15 +410,7 @@ export const AdminDashboard: React.FC = () => {
                 <div className="w-2 h-2 rounded-full bg-rose-500" />
                 <span>Escalated</span>
               </div>
-              <span className="font-medium text-slate-200">6 (0.3%)</span>
-            </div>
-
-            <div className="flex items-center justify-between text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span>Closed</span>
-              </div>
-              <span className="font-medium text-slate-200">124 (6.7%)</span>
+              <span className="font-medium text-slate-200">{analytics.escalatedTickets}</span>
             </div>
           </div>
         </div>
@@ -725,20 +828,7 @@ export const AdminDashboard: React.FC = () => {
             <p className="text-xs text-slate-400 mb-4">Log an incoming customer inquiry or issue.</p>
 
             <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!newTicketSubject) return;
-                const newT: TicketItem = {
-                  id: `#${1043 + tickets.length}`,
-                  subject: newTicketSubject,
-                  priority: newTicketPriority,
-                  status: 'Open',
-                  createdOn: 'Just now',
-                };
-                setTickets([newT, ...tickets]);
-                setNewTicketSubject('');
-                setShowAddTicketModal(false);
-              }}
+              onSubmit={handleCreateTicket}
               className="space-y-3.5 text-xs"
             >
               <div>

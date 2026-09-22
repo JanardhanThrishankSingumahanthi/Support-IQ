@@ -38,7 +38,7 @@ export type ChatMessage = {
   content: string
   created_at: string
   metadata_json?: {
-    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying'
+    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying' | 'error'
     model?: string
     latency_ms?: number
     citations?: CitationItem[]

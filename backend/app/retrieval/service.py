@@ -186,7 +186,8 @@ class RetrievalService:
         claim_total = max(len(claims), 1)
         coverage = supported_claim_count / claim_total
         average_support = sum(evidence_scores) / claim_total if evidence_scores else 0.0
-        reliability_score = min(1.0, max(0.0, (0.7 * coverage) + (0.3 * average_support / max(1.0, 0.2))))
+        normalized_support = min(1.0, average_support / 0.35) if average_support > 0 else 0.0
+        reliability_score = min(1.0, max(0.0, (0.7 * coverage) + (0.3 * normalized_support)))
         grounding_status = "supported"
         if coverage < 0.5:
             grounding_status = "unsupported"

@@ -162,6 +162,8 @@ export function AppRoutes() {
         }
       />
 
+      <Route path="/tickets" element={<Navigate to="/support-tickets" replace />} />
+
       {/* Catch-all fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

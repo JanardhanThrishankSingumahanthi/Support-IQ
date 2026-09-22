@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,19 +15,21 @@ from app.db.session import SessionLocal, create_db_engine
 settings = get_settings()
 logger = configure_logging()
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
-
 # Ensure the SQLite schema exists before the first request is served, even in tests.
 initialize_database()
 
 
-@app.on_event("startup")
-def startup_event() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     initialize_database()
     with SessionLocal() as session:
         ensure_roles_and_permissions(session)
         session.commit()
     seed_demo_data()
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 
 app.add_middleware(

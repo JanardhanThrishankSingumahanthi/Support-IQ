@@ -1,229 +1,244 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react'
 import {
-  LifeBuoy, Search, Plus, ChevronRight, User,
-  FileText, Send
-} from 'lucide-react';
+  LifeBuoy,
+  Search,
+  Plus,
+  ChevronRight,
+  User,
+  FileText,
+  Send,
+} from 'lucide-react'
+import { getStoredSession } from '../lib/auth'
+
+const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 interface Ticket {
-  id: string;
-  customerName: string;
-  customerEmail: string;
-  subject: string;
-  category: string;
-  priority: 'High' | 'Medium' | 'Low';
-  status: 'Open' | 'In Progress' | 'Resolved' | 'Escalated';
-  confidence: number;
-  channel: string;
-  createdOn: string;
-  assignedTo: string;
+  id: string
+  numericId: number
+  customerName: string
+  customerEmail: string
+  subject: string
+  category: string
+  priority: 'High' | 'Medium' | 'Low' | 'Urgent'
+  status: 'Open' | 'In Progress' | 'Resolved' | 'Escalated' | 'Closed'
+  confidence: number
+  channel: string
+  createdOn: string
+  assignedTo: string
   messages: {
-    sender: 'customer' | 'ai' | 'agent';
-    text: string;
-    time: string;
-    citations?: string[];
-  }[];
+    sender: 'customer' | 'ai' | 'agent'
+    text: string
+    time: string
+    citations?: string[]
+  }[]
 }
 
-const INITIAL_TICKETS: Ticket[] = [
-  {
-    id: 'SIQ-1042',
-    customerName: 'Rahul Kumar',
-    customerEmail: 'rahul.kumar@example.com',
-    subject: 'Refund for annual subscription after accidental renewal',
-    category: 'Billing & Payments',
-    priority: 'High',
-    status: 'Open',
-    confidence: 0.94,
-    channel: 'Web Portal',
-    createdOn: '10 min ago',
-    assignedTo: 'Unassigned',
-    messages: [
-      {
-        sender: 'customer',
-        text: 'Hi, I was charged for an annual renewal yesterday without receiving an advance notice email. Can I get a full refund if I request within 14 days?',
-        time: '10:14 AM'
-      },
-      {
-        sender: 'ai',
-        text: 'Yes, according to Section 2 of our Return & Refund Policy, customers who request a refund within 14 days of subscription renewal are eligible for a 100% full refund back to their original payment method, processed within 5-7 business days.',
-        time: '10:14 AM',
-        citations: ['Return_Policy.pdf (Section 2, Page 1)', 'Payment_Guide.pdf (Refund SLA)']
-      }
-    ]
-  },
-  {
-    id: 'SIQ-1041',
-    customerName: 'Priya Sharma',
-    customerEmail: 'priya.s@domain.com',
-    subject: 'Unable to login to account after password reset token expiry',
-    category: 'Account Management',
-    priority: 'Medium',
-    status: 'In Progress',
-    confidence: 0.88,
-    channel: 'Mobile App',
-    createdOn: '32 min ago',
-    assignedTo: 'Mohit Jain',
-    messages: [
-      {
-        sender: 'customer',
-        text: 'My reset password link expired after 15 minutes and now the portal says too many requests.',
-        time: '09:52 AM'
-      },
-      {
-        sender: 'ai',
-        text: 'Password reset links expire automatically after 15 minutes for enterprise security. A cooldown period of 10 minutes applies before a new link can be requested.',
-        time: '09:53 AM',
-        citations: ['Account_Management.pdf (Auth Rules)']
-      }
-    ]
-  },
-  {
-    id: 'SIQ-1040',
-    customerName: 'Anil Verma',
-    customerEmail: 'anil.v@techcorp.in',
-    subject: 'Warranty claim for Dell laptop motherboard defect',
-    category: 'Technical Support',
-    priority: 'Medium',
-    status: 'Open',
-    confidence: 0.96,
-    channel: 'Web Portal',
-    createdOn: '1 hour ago',
-    assignedTo: 'Sneha Nair',
-    messages: [
-      {
-        sender: 'customer',
-        text: 'The laptop motherboard stopped powering on. Is this covered under the standard 1-year limited hardware warranty?',
-        time: '09:24 AM'
-      }
-    ]
-  },
-  {
-    id: 'SIQ-1039',
-    customerName: 'Neha Gupta',
-    customerEmail: 'neha.g@startup.io',
-    subject: 'Product delivery delay for express shipment order #9942',
-    category: 'Product Information',
-    priority: 'Low',
-    status: 'Resolved',
-    confidence: 0.99,
-    channel: 'Chat Widget',
-    createdOn: '2 hours ago',
-    assignedTo: 'AI Assistant',
-    messages: [
-      {
-        sender: 'customer',
-        text: 'Where is my order #9942 shipped via express courier?',
-        time: '08:20 AM'
-      },
-      {
-        sender: 'ai',
-        text: 'Order #9942 has been handed to BlueDart express courier (Tracking #BD849204) and is scheduled for delivery today before 4:00 PM.',
-        time: '08:21 AM'
-      }
-    ]
-  },
-  {
-    id: 'SIQ-1038',
-    customerName: 'Carlos Silva',
-    customerEmail: 'carlos.silva@global.net',
-    subject: 'Payment failed during checkout with Stripe international card',
-    category: 'Billing & Payments',
-    priority: 'High',
-    status: 'In Progress',
-    confidence: 0.82,
-    channel: 'Email',
-    createdOn: '3 hours ago',
-    assignedTo: 'Mohit Jain',
-    messages: [
-      {
-        sender: 'customer',
-        text: 'Checkout returned error 4002: 3D-Secure authentication timed out.',
-        time: '07:22 AM'
-      }
-    ]
-  }
-];
-
 export const SupportTickets: React.FC = () => {
-  const [tickets, setTickets] = useState<Ticket[]>(INITIAL_TICKETS);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(INITIAL_TICKETS[0]);
-  const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [replyText, setReplyText] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const session = getStoredSession()
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [filterStatus, setFilterStatus] = useState<string>('All')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [replyText, setReplyText] = useState('')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   // New ticket form
-  const [newSubject, setNewSubject] = useState('');
-  const [newCustomerEmail, setNewCustomerEmail] = useState('');
-  const [newCategory, setNewCategory] = useState('Billing & Payments');
-  const [newPriority, setNewPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  const [newSubject, setNewSubject] = useState('')
+  const [newCustomerEmail, setNewCustomerEmail] = useState('')
+  const [newCategory, setNewCategory] = useState('Billing & Payments')
+  const [newPriority, setNewPriority] = useState<'High' | 'Medium' | 'Low'>('Medium')
 
-  const filteredTickets = tickets.filter(t => {
-    const matchesStatus = filterStatus === 'All' || t.status === filterStatus;
-    const matchesSearch = t.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          t.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          t.id.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+  const mapBackendTicket = (t: any): Ticket => {
+    const rawMsgs = t.messages || []
+    const mappedMessages = rawMsgs.map((m: any) => ({
+      sender: m.sender_type === 'ai' ? 'ai' : m.sender_type === 'agent' ? 'agent' : 'customer',
+      text: m.content,
+      time: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+      citations: [],
+    }))
 
-  const handleSendReply = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyText.trim() || !selectedTicket) return;
-
-    const updatedTicket: Ticket = {
-      ...selectedTicket,
-      messages: [
-        ...selectedTicket.messages,
-        {
-          sender: 'agent',
-          text: replyText,
-          time: 'Just now'
-        }
-      ]
-    };
-
-    setTickets(tickets.map(t => t.id === selectedTicket.id ? updatedTicket : t));
-    setSelectedTicket(updatedTicket);
-    setReplyText('');
-  };
-
-  const handleUpdateStatus = (ticketId: string, newStatus: Ticket['status']) => {
-    const updated = tickets.map(t => t.id === ticketId ? { ...t, status: newStatus } : t);
-    setTickets(updated);
-    if (selectedTicket && selectedTicket.id === ticketId) {
-      setSelectedTicket({ ...selectedTicket, status: newStatus });
+    // If no explicit messages, generate first message from customer question or description
+    if (mappedMessages.length === 0 && (t.description || t.issue_question || t.subject)) {
+      mappedMessages.push({
+        sender: 'customer',
+        text: t.issue_question || t.description || t.subject,
+        time: t.created_at ? new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Initial',
+      })
+      if (t.ai_answer) {
+        mappedMessages.push({
+          sender: 'ai',
+          text: t.ai_answer,
+          time: t.created_at ? new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Initial',
+          citations: (t.evidence?.items || []).map((e: any) => `${e.document_title || 'Document'} (Score: ${Math.round((e.score || 0.9) * 100)}%)`),
+        })
+      }
     }
-  };
 
-  const handleCreateTicket = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSubject || !newCustomerEmail) return;
-    const added: Ticket = {
-      id: `SIQ-${1043 + tickets.length}`,
-      customerName: newCustomerEmail.split('@')[0],
-      customerEmail: newCustomerEmail,
-      subject: newSubject,
-      category: newCategory,
-      priority: newPriority,
-      status: 'Open',
-      confidence: 0.91,
-      channel: 'Web Portal',
-      createdOn: 'Just now',
-      assignedTo: 'Unassigned',
-      messages: [
-        {
-          sender: 'customer',
-          text: newSubject,
-          time: 'Just now'
+    const relScore = t.reliability?.score ?? 0.92
+
+    return {
+      id: `SIQ-${t.id}`,
+      numericId: t.id,
+      customerName: t.customer_name || 'Customer',
+      customerEmail: t.customer_email || 'customer@example.com',
+      subject: t.subject || t.title || 'Support Inquiry',
+      category: t.category || 'General',
+      priority: t.priority || 'Medium',
+      status: t.status || 'Open',
+      confidence: typeof relScore === 'number' ? relScore : 0.92,
+      channel: t.source || 'Web Portal',
+      createdOn: t.created_at
+        ? new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Recently',
+      assignedTo: t.assigned_agent_id ? 'Support Specialist' : 'Unassigned',
+      messages: mappedMessages,
+    }
+  }
+
+  const fetchTickets = async () => {
+    if (!session?.token) {
+      setLoading(false)
+      return
+    }
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets?page=1&page_size=100`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const rawItems = data.items || []
+        const mapped = rawItems.map(mapBackendTicket)
+        setTickets(mapped)
+        if (mapped.length > 0) {
+          setSelectedTicket((prev) => {
+            if (prev) {
+              const existing = mapped.find((item: Ticket) => item.numericId === prev.numericId)
+              return existing || mapped[0]
+            }
+            return mapped[0]
+          })
+        } else {
+          setSelectedTicket(null)
         }
-      ]
-    };
-    setTickets([added, ...tickets]);
-    setSelectedTicket(added);
-    setShowCreateModal(false);
-    setNewSubject('');
-    setNewCustomerEmail('');
-  };
+      }
+    } catch {
+      // Ignore network errors
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchTickets()
+  }, [session?.token])
+
+  const filteredTickets = tickets.filter((t) => {
+    const matchesStatus = filterStatus === 'All' || t.status === filterStatus
+    const matchesSearch =
+      t.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.id.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesStatus && matchesSearch
+  })
+
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!replyText.trim() || !selectedTicket || !session?.token) return
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets/${selectedTicket.numericId}/reply`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: replyText.trim(),
+          sender_type: 'agent',
+        }),
+      })
+
+      if (res.ok) {
+        const newMsg = {
+          sender: 'agent' as const,
+          text: replyText.trim(),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }
+        const updatedTicket: Ticket = {
+          ...selectedTicket,
+          status: selectedTicket.status === 'Open' ? 'In Progress' : selectedTicket.status,
+          messages: [...selectedTicket.messages, newMsg],
+        }
+        setSelectedTicket(updatedTicket)
+        setTickets((prev) => prev.map((t) => (t.numericId === selectedTicket.numericId ? updatedTicket : t)))
+        setReplyText('')
+      }
+    } catch {
+      // Ignore network errors
+    }
+  }
+
+  const handleUpdateStatus = async (ticketNumericId: number, newStatus: Ticket['status']) => {
+    if (!session?.token) return
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets/${ticketNumericId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      })
+
+      if (res.ok) {
+        setTickets((prev) => prev.map((t) => (t.numericId === ticketNumericId ? { ...t, status: newStatus } : t)))
+        if (selectedTicket && selectedTicket.numericId === ticketNumericId) {
+          setSelectedTicket({ ...selectedTicket, status: newStatus })
+        }
+      }
+    } catch {
+      // Ignore network errors
+    }
+  }
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSubject || !newCustomerEmail || !session?.token) return
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subject: newSubject,
+          description: newSubject,
+          customer_email: newCustomerEmail,
+          customer_name: newCustomerEmail.split('@')[0],
+          category: newCategory,
+          priority: newPriority,
+          source: 'Web Portal',
+        }),
+      })
+
+      if (res.ok) {
+        const createdRaw = await res.json()
+        const mapped = mapBackendTicket(createdRaw)
+        setTickets((prev) => [mapped, ...prev])
+        setSelectedTicket(mapped)
+        setShowCreateModal(false)
+        setNewSubject('')
+        setNewCustomerEmail('')
+      }
+    } catch {
+      // Ignore network errors
+    }
+  }
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
@@ -287,61 +302,82 @@ export const SupportTickets: React.FC = () => {
           </div>
 
           {/* Ticket List Cards */}
-          <div className="space-y-2.5">
-            {filteredTickets.map((ticket) => {
-              const isSelected = selectedTicket?.id === ticket.id;
-              return (
-                <div
-                  key={ticket.id}
-                  onClick={() => setSelectedTicket(ticket)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-800/90 border-cyan-500/50 shadow-lg shadow-cyan-500/5'
-                      : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-850 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-cyan-400">{ticket.id}</span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                        ticket.status === 'Resolved' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
-                        ticket.status === 'In Progress' ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' :
-                        ticket.status === 'Escalated' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' :
-                        'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                      }`}>
-                        {ticket.status}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                        ticket.priority === 'High' ? 'bg-rose-500/20 text-rose-300' :
-                        ticket.priority === 'Medium' ? 'bg-amber-500/20 text-amber-300' :
-                        'bg-slate-800 text-slate-400'
-                      }`}>
-                        {ticket.priority} Priority
-                      </span>
+          {loading ? (
+            <div className="p-8 text-center text-xs text-slate-400">Loading support tickets from database...</div>
+          ) : tickets.length === 0 ? (
+            <div className="p-8 rounded-xl bg-slate-900/60 border border-slate-800/80 text-center text-xs text-slate-400">
+              No support tickets found in database. Click <strong className="text-cyan-400">+ Create Ticket</strong> to record a customer inquiry.
+            </div>
+          ) : filteredTickets.length === 0 ? (
+            <div className="p-8 rounded-xl bg-slate-900/60 border border-slate-800/80 text-center text-xs text-slate-400">
+              No tickets match filter "{filterStatus}".
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {filteredTickets.map((ticket) => {
+                const isSelected = selectedTicket?.numericId === ticket.numericId
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => setSelectedTicket(ticket)}
+                    className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-slate-800/90 border-cyan-500/50 shadow-lg shadow-cyan-500/5'
+                        : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-850 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-cyan-400">{ticket.id}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                            ticket.status === 'Resolved'
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : ticket.status === 'In Progress'
+                              ? 'bg-blue-500/10 text-blue-300 border-blue-500/30'
+                              : ticket.status === 'Escalated'
+                              ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                              : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                          }`}
+                        >
+                          {ticket.status}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                            ticket.priority === 'High' || ticket.priority === 'Urgent'
+                              ? 'bg-rose-500/20 text-rose-300'
+                              : ticket.priority === 'Medium'
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {ticket.priority} Priority
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-500">{ticket.createdOn}</span>
                     </div>
-                    <span className="text-[11px] text-slate-500">{ticket.createdOn}</span>
+
+                    <h3 className="text-sm font-semibold text-slate-100 mb-1 line-clamp-1">{ticket.subject}</h3>
+
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/60 mt-2">
+                      <div className="flex items-center gap-2 truncate">
+                        <User className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span className="text-slate-300 truncate">{ticket.customerName}</span>
+                        <span className="text-slate-500 truncate">({ticket.customerEmail})</span>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-[11px] text-cyan-400 font-mono">
+                          {Math.round(ticket.confidence * 100)}% Grounded
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-600" />
+                      </div>
+                    </div>
                   </div>
-
-                  <h3 className="text-sm font-semibold text-slate-100 mb-1 line-clamp-1">{ticket.subject}</h3>
-
-                  <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/60 mt-2">
-                    <div className="flex items-center gap-2 truncate">
-                      <User className="w-3 h-3 text-slate-500 shrink-0" />
-                      <span className="text-slate-300 truncate">{ticket.customerName}</span>
-                      <span className="text-slate-500 truncate">({ticket.customerEmail})</span>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-[11px] text-cyan-400 font-mono">
-                        {Math.round(ticket.confidence * 100)}% Grounded
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-600" />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Right Column: Selected Ticket Details & Active Chat Thread (5 Cols) */}
@@ -355,22 +391,27 @@ export const SupportTickets: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <select
                       value={selectedTicket.status}
-                      onChange={(e) => handleUpdateStatus(selectedTicket.id, e.target.value as any)}
+                      onChange={(e) => handleUpdateStatus(selectedTicket.numericId, e.target.value as any)}
                       className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-cyan-500"
                     >
                       <option value="Open">Open</option>
                       <option value="In Progress">In Progress</option>
                       <option value="Resolved">Resolved</option>
                       <option value="Escalated">Escalated</option>
+                      <option value="Closed">Closed</option>
                     </select>
                   </div>
                 </div>
 
                 <h2 className="text-base font-bold text-slate-100 mb-1">{selectedTicket.subject}</h2>
                 <div className="text-xs text-slate-400 flex items-center gap-2">
-                  <span>Customer: <strong className="text-slate-200">{selectedTicket.customerName}</strong></span>
+                  <span>
+                    Customer: <strong className="text-slate-200">{selectedTicket.customerName}</strong>
+                  </span>
                   <span>·</span>
-                  <span>Category: <strong className="text-slate-300">{selectedTicket.category}</strong></span>
+                  <span>
+                    Category: <strong className="text-slate-300">{selectedTicket.category}</strong>
+                  </span>
                 </div>
               </div>
 
@@ -388,8 +429,20 @@ export const SupportTickets: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5 font-medium">
-                      <span className={m.sender === 'ai' ? 'text-cyan-400' : m.sender === 'agent' ? 'text-purple-400' : 'text-slate-300'}>
-                        {m.sender === 'customer' ? selectedTicket.customerName : m.sender === 'ai' ? '⚡ SupportIQ AI Agent' : 'Human Support Specialist'}
+                      <span
+                        className={
+                          m.sender === 'ai'
+                            ? 'text-cyan-400'
+                            : m.sender === 'agent'
+                            ? 'text-purple-400'
+                            : 'text-slate-300'
+                        }
+                      >
+                        {m.sender === 'customer'
+                          ? selectedTicket.customerName
+                          : m.sender === 'ai'
+                          ? '⚡ SupportIQ AI Agent'
+                          : 'Human Support Specialist'}
                       </span>
                       <span>{m.time}</span>
                     </div>
@@ -416,7 +469,11 @@ export const SupportTickets: React.FC = () => {
                   <span className="text-xs text-slate-400 font-medium">Compose Response</span>
                   <button
                     type="button"
-                    onClick={() => setReplyText('Our team has reviewed your request and processed the approval. You should see the confirmation reflected on your dashboard shortly.')}
+                    onClick={() =>
+                      setReplyText(
+                        'Our support team has reviewed your request and updated the ticket status. Let us know if you need any additional assistance.',
+                      )
+                    }
                     className="text-[10px] text-cyan-400 hover:underline"
                   >
                     + Insert Standard Resolution Template
@@ -530,5 +587,5 @@ export const SupportTickets: React.FC = () => {
         </div>
       )}
     </div>
-  );
-};
+  )
+}

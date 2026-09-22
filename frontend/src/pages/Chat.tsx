@@ -8,7 +8,6 @@ import {
   NoEvidenceState,
   RetrievingState,
   StopGenerationButton,
-  VerifyingState,
 } from '../components/common/UIStateFeedback'
 import { getStoredSession } from '../lib/auth'
 import type { ChatMessage, CitationItem } from '../types'
@@ -25,7 +24,12 @@ export function Chat() {
   const [useKB, setUseKB] = useState(true)
   const [selectedModel, setSelectedModel] = useState('QLoRA (Fine-tuned)')
   const [previewCitation, setPreviewCitation] = useState<CitationItem | null>(null)
-  const [escalationTicket, setEscalationTicket] = useState<string | null>(null)
+  const [escalationTicket, setEscalationTicket] = useState<{ id: number; title: string } | null>(null)
+  const [isEscalating, setIsEscalating] = useState(false)
+  const [escalationError, setEscalationError] = useState<string | null>(null)
+  const [kbDocCount, setKbDocCount] = useState<number | null>(null)
+  const [recentDocs, setRecentDocs] = useState<Array<{ id: number; filename: string; updated_at?: string; created_at: string }>>([])
+  const [systemHealth, setSystemHealth] = useState<'operational' | 'degraded' | 'checking'>('checking')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -38,6 +42,34 @@ export function Chat() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, pipelineState])
+
+  useEffect(() => {
+    if (!session?.token) return
+    const fetchKbStatus = async () => {
+      try {
+        const [docsRes, healthRes] = await Promise.all([
+          fetch(`${apiBase}/api/v1/documents?page=1&page_size=3`, {
+            headers: { Authorization: `Bearer ${session.token}` },
+          }),
+          fetch(`${apiBase}/api/v1/health`),
+        ])
+        if (docsRes.ok) {
+          const data = await docsRes.json()
+          setRecentDocs(data.items || [])
+          setKbDocCount(typeof data.total === 'number' ? data.total : (data.items || []).length)
+        }
+        if (healthRes.ok) {
+          const hData = await healthRes.json()
+          setSystemHealth(hData.status === 'ok' ? 'operational' : 'degraded')
+        } else {
+          setSystemHealth('degraded')
+        }
+      } catch {
+        setSystemHealth('degraded')
+      }
+    }
+    fetchKbStatus()
+  }, [session?.token])
 
   const handleSend = async (textToSend?: string) => {
     const question = (textToSend || input).trim()
@@ -55,15 +87,6 @@ export function Chat() {
 
     setMessages((prev) => [...prev, newUserMsg])
     setPipelineState('retrieving')
-
-    // Cycle through pipeline animations for professional UX
-    setTimeout(() => {
-      setPipelineState('generating')
-    }, 600)
-
-    setTimeout(() => {
-      setPipelineState('verifying')
-    }, 1200)
 
     try {
       const res = await fetch(`${apiBase}/api/v1/chat/messages`, {
@@ -89,28 +112,22 @@ export function Chat() {
 
       setMessages((prev) => [...prev, data.assistant_message])
     } catch {
-      // Fallback local grounded answer if offline
-      const fallbackMsg: ChatMessage = {
+      // Honest connection error when backend is unreachable
+      const errorMsg: ChatMessage = {
         id: Date.now() + 1,
         conversation_id: conversationId || 0,
         role: 'assistant',
-        content: `Based on verified policy documents: "${question}" is addressed in our support documentation. Return requests must be submitted within 14 days of purchase.`,
+        content: 'Unable to reach SupportIQ server. Please check your network connection and verify the backend is running.',
         created_at: new Date().toISOString(),
         metadata_json: {
-          status: 'resolved',
+          status: 'error',
           model: selectedModel,
-          citations: [
-            {
-              document_title: 'Return_Policy.pdf',
-              page: 2,
-              quote: 'Annual subscriptions may be refunded within 14 days of purchase.',
-              match_percent: 94,
-            },
-          ],
-          reliability: { score: 0.92, label: 'high' },
+          citations: [],
+          reliability: { score: 0.0, label: 'low' },
+          grounding_status: 'unsupported',
         },
       }
-      setMessages((prev) => [...prev, fallbackMsg])
+      setMessages((prev) => [...prev, errorMsg])
     } finally {
       setPipelineState('idle')
     }
@@ -156,8 +173,50 @@ export function Chat() {
   ]
 
   const handleEscalateToTicket = async () => {
-    const ticketId = `#SIQ-${Math.floor(1000 + Math.random() * 9000)}`
-    setEscalationTicket(ticketId)
+    if (!session?.token || isEscalating) return
+    setIsEscalating(true)
+    setEscalationError(null)
+
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant')
+
+    const subject = lastUserMsg ? `Escalated Chat: ${lastUserMsg.content.slice(0, 50)}...` : 'Support Escalation from AI Chat'
+    const description = lastUserMsg
+      ? `Escalated inquiry from AI Chat session.\n\nUser Question:\n${lastUserMsg.content}\n\nAI Response:\n${lastAssistantMsg?.content || 'None'}`
+      : 'Customer requested human agent assistance from live chat.'
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/support-tickets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({
+          subject,
+          description,
+          category: 'Chat Escalation',
+          priority: 'High',
+          source: 'chat',
+          context: {
+            conversation_id: conversationId,
+            question: lastUserMsg?.content,
+            answer: lastAssistantMsg?.content,
+            escalation_reason: 'User requested human agent escalation',
+            reliability: lastAssistantMsg?.metadata_json?.reliability,
+            evidence: lastAssistantMsg?.metadata_json?.citations,
+          },
+        }),
+      })
+
+      if (!res.ok) throw new Error('Failed to create escalation ticket')
+      const created = await res.json()
+      setEscalationTicket({ id: created.id, title: created.subject || subject })
+    } catch (err: any) {
+      setEscalationError(err.message || 'Escalation failed')
+    } finally {
+      setIsEscalating(false)
+    }
   }
 
   return (
@@ -303,7 +362,10 @@ export function Chat() {
 
                     {/* Escalation ticket banner */}
                     {!isUser && escalationTicket && (
-                      <HumanEscalationState ticketId={escalationTicket} />
+                      <HumanEscalationState
+                        ticketId={`#SIQ-${escalationTicket.id}`}
+                        onViewTicket={() => navigate('/tickets')}
+                      />
                     )}
 
                     {/* Feedback row */}
@@ -329,7 +391,6 @@ export function Chat() {
           {/* Real-time Pipeline Animations */}
           {pipelineState === 'retrieving' && <RetrievingState query={input} />}
           {pipelineState === 'generating' && <GeneratingState />}
-          {pipelineState === 'verifying' && <VerifyingState confidence={92} />}
 
           {/* Stop generation button */}
           {pipelineState !== 'idle' && <StopGenerationButton onStop={() => setPipelineState('idle')} />}
@@ -424,14 +485,20 @@ export function Chat() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-4 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-bold text-white">Knowledge Base Status</h4>
-            <span className="text-xs text-slate-500">›</span>
+            <Link to="/documents" className="text-xs text-slate-500 hover:text-cyan-400">›</Link>
           </div>
           <div className="flex items-center gap-2 text-xs text-emerald-300 font-semibold mb-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <span>Connected</span>
           </div>
-          <p className="text-[11px] text-slate-400">12,487 documents indexed</p>
-          <p className="text-[10px] text-slate-500 mt-0.5">Last updated: 11 Sep 2026, 10:24 AM</p>
+          <p className="text-[11px] text-slate-400">
+            {kbDocCount !== null ? `${kbDocCount} document${kbDocCount === 1 ? '' : 's'} indexed` : 'Loading documents...'}
+          </p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {recentDocs.length > 0
+              ? `Last updated: ${new Date(recentDocs[0].updated_at || recentDocs[0].created_at).toLocaleDateString()}`
+              : 'No documents uploaded yet'}
+          </p>
         </div>
 
         {/* System Status Checklist */}
@@ -441,8 +508,8 @@ export function Chat() {
             <span className="text-xs text-slate-500">›</span>
           </div>
           <div className="flex items-center gap-2 text-[11px] font-semibold text-emerald-400 border-b border-slate-800 pb-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span>All Systems Operational</span>
+            <span className={`h-1.5 w-1.5 rounded-full ${systemHealth === 'operational' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span>{systemHealth === 'operational' ? 'All Systems Operational' : 'Verifying Connectivity'}</span>
           </div>
           <div className="space-y-2 text-xs">
             {[
@@ -454,10 +521,12 @@ export function Chat() {
             ].map((srv) => (
               <div key={srv} className="flex items-center justify-between text-slate-300">
                 <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className={`h-1.5 w-1.5 rounded-full ${systemHealth === 'operational' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                   <span className="text-[11px]">{srv}</span>
                 </div>
-                <span className="text-[10px] text-emerald-400 font-medium">Online</span>
+                <span className={`text-[10px] font-medium ${systemHealth === 'operational' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {systemHealth === 'operational' ? 'Online' : 'Checking'}
+                </span>
               </div>
             ))}
           </div>
@@ -472,23 +541,25 @@ export function Chat() {
             </Link>
           </div>
           <div className="space-y-2">
-            {[
-              { name: 'Return_Policy.pdf', time: 'Updated 5 days ago', icon: '📄' },
-              { name: 'Terms_of_Service.pdf', time: 'Updated 12 days ago', icon: '📄' },
-              { name: 'Product_Warranty.pdf', time: 'Updated 18 days ago', icon: '📄' },
-            ].map((doc) => (
-              <div
-                key={doc.name}
-                onClick={() => navigate('/documents')}
-                className="flex items-center gap-2.5 rounded-xl border border-slate-800/80 bg-slate-950/50 p-2 text-xs hover:border-slate-700 cursor-pointer transition"
-              >
-                <span>{doc.icon}</span>
-                <div className="truncate">
-                  <p className="font-medium text-slate-200 truncate">{doc.name}</p>
-                  <p className="text-[10px] text-slate-500">{doc.time}</p>
+            {recentDocs.length === 0 ? (
+              <p className="text-[11px] text-slate-500 italic py-2">No documents indexed yet</p>
+            ) : (
+              recentDocs.slice(0, 3).map((doc) => (
+                <div
+                  key={doc.id}
+                  onClick={() => navigate('/documents')}
+                  className="flex items-center gap-2.5 rounded-xl border border-slate-800/80 bg-slate-950/50 p-2 text-xs hover:border-slate-700 cursor-pointer transition"
+                >
+                  <span>📄</span>
+                  <div className="truncate">
+                    <p className="font-medium text-slate-200 truncate">{doc.filename}</p>
+                    <p className="text-[10px] text-slate-500">
+                      {doc.updated_at ? `Updated ${new Date(doc.updated_at).toLocaleDateString()}` : 'Uploaded'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -509,17 +580,35 @@ export function Chat() {
         {/* Human Support Escalation Banner */}
         <div
           onClick={handleEscalateToTicket}
-          className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 to-sky-950/40 p-4 shadow-lg hover:border-cyan-400 cursor-pointer transition"
+          className={`rounded-2xl border ${escalationTicket ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 to-sky-950/40'} p-4 shadow-lg hover:border-cyan-400 cursor-pointer transition`}
         >
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-base font-bold">
-              👥
+            <div className={`h-9 w-9 rounded-xl ${escalationTicket ? 'bg-emerald-500/20 text-emerald-300' : 'bg-cyan-500/20 text-cyan-300'} flex items-center justify-center text-base font-bold`}>
+              {escalationTicket ? '✓' : '👥'}
             </div>
             <div>
-              <h5 className="text-xs font-bold text-white">Need more help?</h5>
-              <p className="text-[11px] text-cyan-300 mt-0.5">Connect with a support agent →</p>
+              <h5 className="text-xs font-bold text-white">
+                {escalationTicket ? `Ticket #${escalationTicket.id} Created` : isEscalating ? 'Creating Ticket...' : 'Need more help?'}
+              </h5>
+              <p className={`text-[11px] ${escalationTicket ? 'text-emerald-300' : 'text-cyan-300'} mt-0.5`}>
+                {escalationTicket ? 'View in Support Tickets →' : isEscalating ? 'Connecting to support...' : 'Connect with a support agent →'}
+              </p>
             </div>
           </div>
+          {escalationTicket && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate('/tickets')
+              }}
+              className="mt-2 text-[11px] font-semibold text-emerald-400 hover:underline block"
+            >
+              Open Ticket #{escalationTicket.id}
+            </button>
+          )}
+          {escalationError && (
+            <p className="mt-1 text-[10px] text-rose-400">{escalationError}</p>
+          )}
         </div>
       </div>
 
@@ -527,7 +616,8 @@ export function Chat() {
       <DocumentEvidenceModal
         isOpen={Boolean(previewCitation)}
         onClose={() => setPreviewCitation(null)}
-        documentTitle={previewCitation?.document_title || 'Return_Policy.pdf'}
+        documentId={previewCitation?.document_id}
+        documentTitle={previewCitation?.document_title || 'Document Evidence'}
         initialPage={previewCitation?.page || 1}
         totalPages={12}
         highlightText={previewCitation?.quote}
