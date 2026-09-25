@@ -13,7 +13,7 @@ import { getStoredSession } from '../lib/auth'
 import { SupportIQIcon } from '../components/brand/Logo'
 import type { ChatMessage, CitationItem } from '../types'
 
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+const apiBase = import.meta.env.VITE_API_URL ?? ''
 
 export function Chat() {
   const navigate = useNavigate()

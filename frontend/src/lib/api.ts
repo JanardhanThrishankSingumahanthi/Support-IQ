@@ -1,4 +1,4 @@
-const defaultApiUrl = 'http://127.0.0.1:8000'
+const defaultApiUrl = ''
 
 export type HealthResponse = {
   status: string

@@ -4,7 +4,7 @@ import { getStoredSession } from '../lib/auth'
 import { ResearchTablesView, type ResearchData } from '../components/evaluation/ResearchTablesView'
 import { ResearchFiguresView } from '../components/evaluation/ResearchFiguresView'
 
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+const apiBase = import.meta.env.VITE_API_URL ?? ''
 
 interface MetricComparisonItem {
   category: string

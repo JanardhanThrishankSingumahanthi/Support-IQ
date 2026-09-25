@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { DonutGauge, HorizontalBarList, LineTrendChart } from '../components/charts/Charts'
 import { getStoredSession } from '../lib/auth'
 
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+const apiBase = import.meta.env.VITE_API_URL ?? ''
 
 export function Dashboard() {
   const navigate = useNavigate()
