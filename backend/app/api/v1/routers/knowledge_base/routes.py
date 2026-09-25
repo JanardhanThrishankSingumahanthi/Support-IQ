@@ -73,10 +73,15 @@ def get_knowledge_base_stats(
 
     indexed_percent = round((indexed_docs / total_docs * 100), 1) if total_docs > 0 else 100.0
 
+    failed_docs = query.filter(Document.status == "FAILED").count()
+    pending_docs = query.filter(Document.status.in_(["UPLOADING", "EXTRACTING", "CHUNKING", "EMBEDDING", "INDEXING"])).count()
+
     return {
         "status": "ok",
         "total_documents": total_docs,
         "indexed_documents": indexed_docs,
+        "failed_documents": failed_docs,
+        "pending_documents": pending_docs,
         "indexed_percentage": indexed_percent,
         "total_chunks": total_chunks,
         "last_updated": latest_update.isoformat() if latest_update else datetime.now(timezone.utc).isoformat(),
@@ -86,6 +91,104 @@ def get_knowledge_base_stats(
         "storage_quota_gb": 5.0,
         "storage_percentage": storage_percent,
         "categories": categories_counter,
+    }
+
+
+@router.get("/index-status")
+def get_knowledge_base_index_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    query = db.query(Document)
+    if current_user.role and current_user.role.name != "Administrator":
+        query = query.filter(Document.owner_id == current_user.id)
+
+    total_docs = query.count()
+    indexed_docs = query.filter(Document.status.in_(["COMPLETED", "INDEXED"])).count()
+    failed_docs = query.filter(Document.status == "FAILED").count()
+    pending_docs = query.filter(Document.status.in_(["UPLOADING", "EXTRACTING", "CHUNKING", "EMBEDDING", "INDEXING"])).count()
+
+    total_chunks = (
+        db.query(func.count(DocumentChunk.id))
+        .join(Document, DocumentChunk.document_id == Document.id)
+        .filter(Document.owner_id == current_user.id if (current_user.role and current_user.role.name != "Administrator") else True)
+        .scalar()
+        or 0
+    )
+
+    if total_chunks == 0 and total_docs > 0:
+        docs = query.all()
+        for doc in docs:
+            metadata = doc.metadata_json or {}
+            total_chunks += int(metadata.get("chunk_count") or 0)
+
+    all_docs = query.all()
+    latest_indexed_at = None
+    for doc in all_docs:
+        meta = doc.metadata_json or {}
+        idx_at = meta.get("indexed_at")
+        if idx_at:
+            if latest_indexed_at is None or str(idx_at) > str(latest_indexed_at):
+                latest_indexed_at = str(idx_at)
+        elif doc.updated_at:
+            dt_iso = doc.updated_at.isoformat()
+            if latest_indexed_at is None or dt_iso > str(latest_indexed_at):
+                latest_indexed_at = dt_iso
+
+    if total_docs == 0:
+        index_health = "IDLE"
+        health_label = "Idle (No documents)"
+    elif failed_docs > 0:
+        index_health = "DEGRADED"
+        health_label = f"Degraded ({failed_docs} document(s) failed)"
+    elif pending_docs > 0:
+        index_health = "INDEXING"
+        health_label = f"Indexing ({pending_docs} document(s) in progress)"
+    else:
+        index_health = "HEALTHY"
+        health_label = "Healthy / Fully Indexed"
+
+    indexed_percent = round((indexed_docs / total_docs * 100), 1) if total_docs > 0 else 100.0
+
+    return {
+        "status": "ok",
+        "index_health": index_health,
+        "health_label": health_label,
+        "total_documents": total_docs,
+        "indexed_documents": indexed_docs,
+        "failed_documents": failed_docs,
+        "pending_documents": pending_docs,
+        "indexed_percentage": indexed_percent,
+        "total_chunks": total_chunks,
+        "last_indexed_at": latest_indexed_at or datetime.now(timezone.utc).isoformat(),
+        "embedding_model": "Deterministic Token Hash Vector (32-dim, SHA-1)",
+        "embedding_dimensions": 32,
+        "retrieval_method": "Two-Stage Hybrid (BM25 Lexical + Cosine Vector + RRF)",
+        "vector_storage": "SQLite Relational DocumentChunk Table",
+    }
+
+
+@router.get("/settings")
+def get_knowledge_base_settings(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "configurable": False,
+        "notice": "These settings are fixed by the current SupportIQ runtime.",
+        "chunk_size_chars": 1000,
+        "chunk_overlap_chars": 0,
+        "chunking_strategy": "Paragraph boundary chunking (1000 char threshold)",
+        "embedding_model": "Deterministic Token Hash Vector (32-dim, SHA-1)",
+        "embedding_dimensions": 32,
+        "retrieval_top_k": 5,
+        "max_top_k": 20,
+        "similarity_threshold": 0.12,
+        "reranker_algorithm": "Reciprocal Rank Fusion (RRF, k=60)",
+        "fusion_weights": "60% Lexical / 40% Dense Vector",
+        "max_document_size_mb": 10,
+        "supported_file_formats": ["PDF", "DOCX", "TXT", "CSV"],
+        "storage_quota_gb": 5.0,
     }
 
 

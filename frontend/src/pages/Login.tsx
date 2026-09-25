@@ -16,6 +16,14 @@ export function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const trimmedEmail = email.trim()
+    const trimmedPassword = password.trim()
+
+    if (!trimmedEmail || !trimmedPassword) {
+      setError('Please provide both email and password.')
+      return
+    }
+
     setLoading(true)
     setError(null)
 
@@ -23,12 +31,18 @@ export function Login() {
       const response = await fetch(`${apiBase}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: trimmedEmail, password: trimmedPassword }),
       })
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
-        throw new Error(payload?.message || payload?.detail?.message || 'Invalid credentials. Please try again.')
+        const detailMsg =
+          payload?.detail?.message ||
+          (typeof payload?.detail === 'string' ? payload.detail : null) ||
+          (Array.isArray(payload?.detail) && payload.detail[0]?.msg ? payload.detail[0].msg : null) ||
+          payload?.message ||
+          'Invalid email or password. Please try again.'
+        throw new Error(detailMsg)
       }
 
       const data = await response.json()
@@ -39,24 +53,7 @@ export function Login() {
       })
       navigate('/dashboard')
     } catch (err: any) {
-      // Fallback demo session so user is never blocked
-      if (email && password) {
-        saveSession({
-          token: 'demo-token',
-          expires_in_minutes: 60,
-          user: {
-            id: 1,
-            email,
-            full_name: email.includes('admin') ? 'Admin' : 'Janardhan',
-            role: email.includes('admin') ? 'Administrator' : 'Student',
-            permissions: ['read_documents', 'view_reports', 'manage_knowledge_base'],
-            is_active: true,
-          },
-        })
-        navigate('/dashboard')
-      } else {
-        setError(err.message)
-      }
+      setError(err.message || 'Unable to connect to authentication server. Please verify backend is running.')
     } finally {
       setLoading(false)
     }

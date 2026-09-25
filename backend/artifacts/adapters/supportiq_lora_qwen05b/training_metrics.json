@@ -1,0 +1,45 @@
+{
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "method": "LoRA (PEFT FP16)",
+  "trainable_parameters": 540672,
+  "total_parameters": 494573440,
+  "trainable_percentage": 0.1093,
+  "rank": 8,
+  "alpha": 16,
+  "target_modules": [
+    "v_proj",
+    "q_proj"
+  ],
+  "epochs": 3,
+  "batch_size": 2,
+  "grad_accum_steps": 2,
+  "learning_rate": 0.0002,
+  "training_duration_seconds": 9.06,
+  "initial_val_loss": 1.6426,
+  "final_val_loss": 1.4008,
+  "loss_progression": [
+    {
+      "epoch": 1,
+      "train_loss": 1.0530942063778639,
+      "val_loss": 1.47410409450531
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.8522879034280777,
+      "val_loss": 1.449900209903717
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.7438262505456805,
+      "val_loss": 1.40081787109375
+    }
+  ],
+  "peak_vram_gb": 2.42,
+  "vram_total_gb": 4.0,
+  "adapter_path": "backend\\artifacts\\adapters\\supportiq_lora_qwen05b",
+  "baseline_response": "Within 14 days of receiving the damaged or defective equipment, you can request an express replacement through the provided options.",
+  "post_lora_response": "Within 14 days of receiving the damaged or defective equipment, customers may request an express replacement.",
+  "output_differs": true,
+  "status": "PASS",
+  "created_at": "2026-09-25T08:19:54Z"
+}

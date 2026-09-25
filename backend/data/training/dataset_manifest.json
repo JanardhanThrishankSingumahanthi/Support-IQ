@@ -1,0 +1,28 @@
+{
+  "dataset_name": "SupportIQ-Domain-Instruction-Tuning-v1",
+  "description": "Domain-specific customer support instruction tuning dataset grounded in SupportIQ knowledge base documents.",
+  "created_at": "2026-09-25",
+  "total_examples": 41,
+  "train_count": 31,
+  "val_count": 10,
+  "train_split_pct": 75.6,
+  "val_split_pct": 24.4,
+  "holdout_dataset_excluded": 2,
+  "holdout_leakage_count": 0,
+  "categories": [
+    "Account & Roles",
+    "Account Security",
+    "Billing & Payments",
+    "Express Replacement",
+    "Hardware Warranty",
+    "Integration",
+    "Product Returns",
+    "Refund & Billing",
+    "SLA & Reliability",
+    "Security & Privacy"
+  ],
+  "files": {
+    "train": "backend\\data\\training\\supportiq_train.jsonl",
+    "val": "backend\\data\\training\\supportiq_val.jsonl"
+  }
+}

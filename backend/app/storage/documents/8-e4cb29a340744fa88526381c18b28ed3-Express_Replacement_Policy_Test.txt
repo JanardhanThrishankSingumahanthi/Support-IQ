@@ -1,0 +1,9 @@
+# SupportIQ Express Replacement Policy
+1. Replacement Eligibility:
+Customers may request an express replacement within 14 days of receiving damaged or defective equipment.
+2. RMA Requirements:
+A valid Return Merchandise Authorization (RMA) number must be generated through the customer support portal.
+3. Shipping and Handling:
+SupportIQ covers all standard return shipping costs for verified warranty defects.
+4. Non-Eligible Items:
+Accidental water damage and unauthorized third-party modifications void express replacement eligibility.

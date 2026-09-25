@@ -1,0 +1,51 @@
+{
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "method": "QLoRA (4-bit NF4 + Double Quantization + PEFT)",
+  "quantization": {
+    "load_in_4bit": true,
+    "quant_type": "nf4",
+    "compute_dtype": "float16",
+    "double_quant": true
+  },
+  "trainable_parameters": 540672,
+  "total_parameters": 494573440,
+  "trainable_percentage": 0.1093,
+  "rank": 8,
+  "alpha": 16,
+  "target_modules": [
+    "v_proj",
+    "q_proj"
+  ],
+  "epochs": 3,
+  "batch_size": 2,
+  "grad_accum_steps": 2,
+  "learning_rate": 0.0002,
+  "training_duration_seconds": 21.6,
+  "initial_val_loss": 1.5872,
+  "final_val_loss": 1.3748,
+  "loss_progression": [
+    {
+      "epoch": 1,
+      "train_loss": 0.9609308447688818,
+      "val_loss": 1.452755618095398
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.8309440808370709,
+      "val_loss": 1.3949934005737306
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.7757744966074824,
+      "val_loss": 1.3748103022575378
+    }
+  ],
+  "peak_vram_gb": 1.79,
+  "vram_total_gb": 4.0,
+  "adapter_path": "C:\\Users\\janardhan-thrishank-Singumahanthi\\OneDrive\\Desktop\\Support iq\\backend\\artifacts\\adapters\\supportiq_qlora_qwen05b",
+  "baseline_response": "To answer your question, you should contact the support center and follow their instructions to request an express replacement for defective equipment. The specific timeframe for requesting an express replacement depends on the company's policy but typically it is within 14 days from",
+  "post_qlora_response": "To determine the timeframe, please provide your contact information and the specific model of equipment you wish to replace. Once I have this information, I will assist you in requesting an express replacement within 14 days of receiving damaged or defective equipment.",
+  "output_differs": true,
+  "status": "PASS",
+  "created_at": "2026-09-25T08:39:35Z"
+}

@@ -13,14 +13,37 @@ from app.db.models import Document, DocumentChunk
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
+STOPWORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+    "any", "are", "aren't", "as", "at", "be", "because", "been", "before", "being",
+    "below", "between", "both", "but", "by", "can", "cannot", "could", "couldn't",
+    "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during",
+    "each", "few", "for", "from", "further", "had", "hadn't", "has", "hasn't",
+    "have", "haven't", "having", "he", "her", "here", "hers", "herself", "him",
+    "himself", "his", "how", "i", "if", "in", "into", "is", "isn't", "it", "its",
+    "itself", "let's", "me", "more", "most", "mustn't", "my", "myself", "no",
+    "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought",
+    "our", "ours", "ourselves", "out", "over", "own", "same", "shan't", "she",
+    "should", "shouldn't", "so", "some", "such", "than", "that", "the", "their",
+    "theirs", "them", "themselves", "then", "there", "these", "they", "this",
+    "those", "through", "to", "too", "under", "until", "up", "very", "was",
+    "wasn't", "we", "were", "weren't", "what", "when", "where", "which", "while",
+    "who", "whom", "why", "with", "won't", "would", "wouldn't", "you", "your",
+    "yours", "yourself", "yourselves"
+}
+
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").lower()).strip()
 
 
-def tokenize(value: str) -> list[str]:
+def tokenize(value: str, filter_stopwords: bool = True) -> list[str]:
     text = normalize_text(value)
-    return [token for token in _TOKEN_RE.findall(text) if len(token) > 2]
+    tokens = [token for token in _TOKEN_RE.findall(text) if len(token) > 2]
+    if filter_stopwords:
+        filtered = [t for t in tokens if t not in STOPWORDS]
+        return filtered if filtered else tokens
+    return tokens
 
 
 def _hash_vector(tokens: list[str], vector_size: int = 32) -> list[float]:
@@ -47,15 +70,32 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     return float(dot / (left_norm * right_norm))
 
 
+DOMAIN_STOPWORDS = {
+    "supportiq", "policy", "policies", "help", "support", "information",
+    "question", "guide", "documentation", "details", "service",
+    "customer", "customers", "user", "users", "client", "clients", "company"
+}
+
+
 def lexical_score(query_tokens: list[str], chunk_text: str) -> float:
     if not query_tokens:
         return 0.0
-    chunk_tokens = Counter(tokenize(chunk_text))
-    overlap = sum(chunk_tokens[token] for token in set(query_tokens) if token in chunk_tokens)
-    query_weight = sum(1 for token in set(query_tokens) if token)
-    if query_weight == 0:
+    distinct_query = [t for t in set(query_tokens) if t not in STOPWORDS]
+    if not distinct_query:
+        distinct_query = list(set(query_tokens))
+    chunk_tokens = set(tokenize(chunk_text, filter_stopwords=True))
+    matched = set(distinct_query).intersection(chunk_tokens)
+    if not matched:
         return 0.0
-    return overlap / max(query_weight, 1)
+
+    substantive_query = [t for t in distinct_query if t not in DOMAIN_STOPWORDS]
+    if substantive_query:
+        substantive_matched = set(substantive_query).intersection(chunk_tokens)
+        if not substantive_matched:
+            return 0.0
+        return len(substantive_matched) / len(substantive_query)
+
+    return len(matched) / len(distinct_query)
 
 
 def compute_recall_at_k(relevant_ids: list[int], retrieved_ids: list[int], k: int) -> float:
@@ -265,6 +305,9 @@ class RetrievalService:
                         "lexical_score": round(float(lexical), 6),
                         "vector_score": round(float(max(vector_score, 0.0)), 6),
                         "matched_terms": sorted(set(query_tokens).intersection(set(chunk_tokens))),
+                        "substantive_matched_terms": sorted(
+                            [t for t in set(query_tokens).intersection(set(chunk_tokens)) if t not in DOMAIN_STOPWORDS]
+                        ),
                         "document_metadata": document.metadata_json or {},
                     }
                 )
@@ -304,10 +347,9 @@ class RetrievalService:
             # Standard Reciprocal Rank Fusion with weighted lexical and semantic channels
             rrf_score = (0.60 / (rrf_k + r_lex)) + (0.40 / (rrf_k + r_vec))
 
-            # Maintain a normalized composite similarity_score for backwards compatibility with thresholds
+            # Normalized composite similarity_score
             raw_hybrid = (0.65 * item["lexical_score"]) + (0.35 * item["vector_score"])
-            # Scale RRF to align with hybrid evidence thresholds
-            combined_score = max(raw_hybrid, rrf_score * 30.0)
+            combined_score = raw_hybrid
 
             enriched = dict(item)
             enriched.update(
@@ -344,6 +386,16 @@ class RetrievalService:
             for item in ranked:
                 item["retrieval_method"] = "vector"
                 item["similarity_score"] = item["vector_score"]
+        elif retrieval_method.lower() in ("hybrid_no_rrf", "hybrid_linear", "linear"):
+            # Ablation mode: Weighted linear combination (0.65 lexical + 0.35 vector) without RRF rank fusion
+            ranked = sorted(
+                candidates,
+                key=lambda item: ((0.65 * item["lexical_score"]) + (0.35 * item["vector_score"])),
+                reverse=True,
+            )[:top_k]
+            for item in ranked:
+                item["retrieval_method"] = "hybrid_no_rrf"
+                item["similarity_score"] = round(float((0.65 * item["lexical_score"]) + (0.35 * item["vector_score"])), 6)
         else:
             # Default to Stage 2 Reciprocal Rank Fusion
             ranked = self.rerank(candidates=candidates, query=query, top_k=top_k)
@@ -357,3 +409,25 @@ class RetrievalService:
             self.db.commit()
 
         return ranked
+
+
+def synthesize_support_answer(query: str, retrieved_chunks: list[dict[str, Any]]) -> str:
+    if not retrieved_chunks:
+        return (
+            "I could not find sufficient verified information in the knowledge base to answer this question. "
+            "To prevent inaccurate guidance, please refine your question or escalate this query to a support agent."
+        )
+
+    top_chunk = retrieved_chunks[0]
+    content = top_chunk.get("content", "").strip()
+
+    paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+    lead = paragraphs[0] if paragraphs else content
+
+    if len(retrieved_chunks) > 1:
+        second = retrieved_chunks[1].get("content", "").strip()
+        second_lead = second.split("\n\n")[0] if "\n\n" in second else second[:200]
+        return f"{lead}\n\nAdditionally: {second_lead}"
+
+    return lead
+

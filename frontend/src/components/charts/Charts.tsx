@@ -300,12 +300,12 @@ export function GroupedBarChart({
   const metricList = metrics || []
   const keys = ['base_llm', 'rag_base', 'lora', 'qlora', 'rag_lora', 'rag_qlora'] as const
   const labels = {
-    base_llm: 'Base LLM',
-    rag_base: 'RAG (Base)',
-    lora: 'LoRA',
-    qlora: 'QLoRA',
-    rag_lora: 'RAG + LoRA',
-    rag_qlora: 'RAG + QLoRA (Proposed)',
+    base_llm: 'Base LLM (No Retr)',
+    rag_base: 'RAG Base (BM25)',
+    lora: 'LoRA (No Retr)',
+    qlora: 'QLoRA (No Retr)',
+    rag_lora: 'RAG + LoRA (Config)',
+    rag_qlora: 'RAG + QLoRA (Config, Proposed)',
   }
 
   return (

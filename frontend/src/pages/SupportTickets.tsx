@@ -7,6 +7,7 @@ import {
   User,
   FileText,
   Send,
+  Download,
 } from 'lucide-react'
 import { getStoredSession } from '../lib/auth'
 
@@ -24,6 +25,9 @@ interface Ticket {
   confidence: number
   channel: string
   createdOn: string
+  createdAt?: string
+  updatedAt?: string
+  resolvedAt?: string | null
   assignedTo: string
   messages: {
     sender: 'customer' | 'ai' | 'agent'
@@ -42,6 +46,7 @@ export const SupportTickets: React.FC = () => {
   const [replyText, setReplyText] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [exportNotice, setExportNotice] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null)
 
   // New ticket form
   const [newSubject, setNewSubject] = useState('')
@@ -91,6 +96,9 @@ export const SupportTickets: React.FC = () => {
       createdOn: t.created_at
         ? new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : 'Recently',
+      createdAt: t.created_at ? new Date(t.created_at).toLocaleString() : '',
+      updatedAt: t.updated_at ? new Date(t.updated_at).toLocaleString() : '',
+      resolvedAt: t.resolved_at ? new Date(t.resolved_at).toLocaleString() : 'Not resolved',
       assignedTo: t.assigned_agent_id ? 'Support Specialist' : 'Unassigned',
       messages: mappedMessages,
     }
@@ -240,6 +248,81 @@ export const SupportTickets: React.FC = () => {
     }
   }
 
+  const handleExportTickets = () => {
+    if (filteredTickets.length === 0) {
+      setExportNotice({
+        type: 'warning',
+        message: 'No tickets available to export.',
+      })
+      setTimeout(() => setExportNotice(null), 5000)
+      return
+    }
+
+    try {
+      const headers = [
+        'Ticket ID',
+        'Subject',
+        'Status',
+        'Priority',
+        'Category',
+        'Customer Name',
+        'Customer Email',
+        'Assignee',
+        'Channel',
+        'Created At',
+        'Updated At',
+        'Resolved At',
+      ]
+
+      const escapeCsvCell = (val: unknown): string => {
+        if (val === null || val === undefined) return ''
+        const str = String(val)
+        if (/[",\n\r]/.test(str)) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return str
+      }
+
+      const rows = filteredTickets.map((t) => [
+        escapeCsvCell(t.id),
+        escapeCsvCell(t.subject),
+        escapeCsvCell(t.status),
+        escapeCsvCell(t.priority),
+        escapeCsvCell(t.category),
+        escapeCsvCell(t.customerName),
+        escapeCsvCell(t.customerEmail),
+        escapeCsvCell(t.assignedTo),
+        escapeCsvCell(t.channel),
+        escapeCsvCell(t.createdAt || t.createdOn),
+        escapeCsvCell(t.updatedAt || ''),
+        escapeCsvCell(t.resolvedAt || 'Not resolved'),
+      ])
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'supportiq-tickets.csv')
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      setExportNotice({
+        type: 'success',
+        message: `Successfully exported ${filteredTickets.length} ticket${filteredTickets.length === 1 ? '' : 's'} to supportiq-tickets.csv`,
+      })
+      setTimeout(() => setExportNotice(null), 5000)
+    } catch (err: any) {
+      setExportNotice({
+        type: 'error',
+        message: err.message || 'Failed to export tickets.',
+      })
+      setTimeout(() => setExportNotice(null), 5000)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
       {/* Top Banner */}
@@ -256,7 +339,15 @@ export const SupportTickets: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={handleExportTickets}
+            className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-750 text-slate-200 flex items-center gap-1.5 transition-all shadow-sm"
+          >
+            <Download className="w-4 h-4 text-cyan-400" />
+            <span>Export Tickets</span>
+          </button>
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-4 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white shadow-lg shadow-cyan-500/20 flex items-center gap-2 transition-all"
@@ -266,6 +357,31 @@ export const SupportTickets: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Export Notice Banner */}
+      {exportNotice && (
+        <div
+          className={`rounded-xl border p-3.5 text-xs flex items-center justify-between animate-fadeIn ${
+            exportNotice.type === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+              : exportNotice.type === 'warning'
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+              : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span>{exportNotice.type === 'success' ? '✓' : '⚠'}</span>
+            <span>{exportNotice.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportNotice(null)}
+            className="text-slate-400 hover:text-white transition ml-3"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Ticket Management Split View */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

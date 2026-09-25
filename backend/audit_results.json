@@ -1,0 +1,271 @@
+{
+  "passed": [
+    {
+      "category": "Auth",
+      "name": "Empty/short credentials rejected",
+      "passed": true,
+      "detail": "Status: 422"
+    },
+    {
+      "category": "Auth",
+      "name": "Invalid credentials rejected (401)",
+      "passed": true,
+      "detail": "Status: 401"
+    },
+    {
+      "category": "Auth",
+      "name": "Register Admin User (Role: Administrator)",
+      "passed": true,
+      "detail": "Status: 201"
+    },
+    {
+      "category": "Auth",
+      "name": "Valid Login returns 200 & token",
+      "passed": true,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "Auth",
+      "name": "Register Support Agent",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Auth",
+      "name": "Register Viewer User",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Auth",
+      "name": "Protected route without token returns 401",
+      "passed": true,
+      "detail": "Status: 401"
+    },
+    {
+      "category": "Auth",
+      "name": "Protected route with invalid token returns 401",
+      "passed": true,
+      "detail": "Status: 401"
+    },
+    {
+      "category": "Auth",
+      "name": "Logout returns 200",
+      "passed": true,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "Auth",
+      "name": "Token invalidated after logout (401)",
+      "passed": true,
+      "detail": "Status: 401"
+    },
+    {
+      "category": "KB",
+      "name": "Get KB stats returns 200",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "KB",
+      "name": "List documents returns 200",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "KB",
+      "name": "Upload text document returns 201",
+      "passed": true,
+      "detail": "Status: 201"
+    },
+    {
+      "category": "KB",
+      "name": "Get uploaded document details (14) with chunks",
+      "passed": true,
+      "detail": "Chunks count: 1"
+    },
+    {
+      "category": "KB",
+      "name": "Reindex document endpoint returns 200",
+      "passed": true,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "KB",
+      "name": "Deleted document cannot be retrieved (404)",
+      "passed": true,
+      "detail": "Status: 404"
+    },
+    {
+      "category": "Chat",
+      "name": "GET /chat/models returns available models",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Chat",
+      "name": "Chat escalation creates Support Ticket in DB",
+      "passed": true,
+      "detail": "Status: 201"
+    },
+    {
+      "category": "Chat",
+      "name": "GET /chat returns user conversation list",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Tickets",
+      "name": "POST /support-tickets creates ticket",
+      "passed": true,
+      "detail": "Status: 201"
+    },
+    {
+      "category": "Tickets",
+      "name": "GET /support-tickets/59 returns ticket details",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Tickets",
+      "name": "PATCH status to In Progress",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Tickets",
+      "name": "POST /support-tickets/{id}/reply adds response",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Tickets",
+      "name": "PATCH status to Resolved",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Tickets",
+      "name": "GET /support-tickets with status filter",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Analytics",
+      "name": "GET /analytics/overview returns real business metrics",
+      "passed": true,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "Analytics",
+      "name": "GET /analytics/dashboard returns dashboard metrics",
+      "passed": true,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "Analytics",
+      "name": "GET /analytics/export returns CSV data",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Experiments",
+      "name": "GET /experiments returns experiment list",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Experiments",
+      "name": "GET /experiments/12/comparison returns run comparisons",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Experiments",
+      "name": "GET /experiments/7/comparison returns run comparisons",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Admin",
+      "name": "Admin can list users (GET /users)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Admin",
+      "name": "Viewer role handles /users with RBAC status",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "category": "Security",
+      "name": "GET user sessions endpoint",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "failed": [
+    {
+      "category": "Auth",
+      "name": "/auth/me returns user profile with Admin role",
+      "passed": false,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "KB",
+      "name": "Retrieval search returns 200",
+      "passed": false,
+      "detail": "Status: 405"
+    },
+    {
+      "category": "KB",
+      "name": "Delete document returns 200",
+      "passed": false,
+      "detail": "Status: 204"
+    },
+    {
+      "category": "Chat",
+      "name": "Extractive model supported query returns answer + citations",
+      "passed": false,
+      "detail": "Status: 200, Citations: 3"
+    },
+    {
+      "category": "Chat",
+      "name": "QLoRA model returns answer + metadata + citations",
+      "passed": false,
+      "detail": "Status: 200, Model: None"
+    },
+    {
+      "category": "Chat",
+      "name": "QLoRA response includes latency telemetry",
+      "passed": false,
+      "detail": "Meta keys: []"
+    },
+    {
+      "category": "Chat",
+      "name": "Unsupported query triggers honest refusal without hallucinated citations",
+      "passed": false,
+      "detail": "Refused: False, Citations: 3"
+    },
+    {
+      "category": "Chat",
+      "name": "Non-existent model returns truthful 400/404 error without silent fallback",
+      "passed": false,
+      "detail": "Status: 200"
+    },
+    {
+      "category": "Experiments",
+      "name": "Experiments #3, #4, #7, #12 exist and intact",
+      "passed": false,
+      "detail": "Existing IDs: [23, 24, 21, 22, 19, 20, 17, 18, 15, 16, 13, 14, 12, 10, 11, 8, 9, 7, 5, 6]"
+    },
+    {
+      "category": "Experiments",
+      "name": "GET /experiments/research-tables returns research data & disclosure",
+      "passed": false,
+      "detail": ""
+    }
+  ],
+  "warnings": []
+}

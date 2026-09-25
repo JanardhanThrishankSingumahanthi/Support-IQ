@@ -176,3 +176,57 @@ def test_explicit_candidate_retrieval_and_rrf_reranking(tmp_path):
         assert "vector_rank" in reranked[0]
         assert reranked[0]["similarity_score"] > 0.0
 
+
+def test_domain_stopwords_do_not_produce_false_positive_evidence(tmp_path):
+    """
+    Regression test for Case 8 holdout failure:
+    Query with heavy domain boilerplate ("SupportIQ", "customer", "support") but unsupported substantive topic
+    must not produce positive evidence or hallucinate answers.
+    """
+    database_path = tmp_path / "domain_regression.db"
+    engine = create_engine(f"sqlite:///{database_path.resolve().as_posix()}")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        user = _create_user(session, email="domain_reg_user@example.com")
+
+        doc = Document(
+            title="Express Replacement Policy",
+            owner_id=user.id,
+            status="COMPLETED",
+            content="# SupportIQ Express Replacement Policy\n1. Replacement Eligibility:\nCustomers may request an express replacement. Contact customer support.",
+            metadata_json={"filename": "express.txt", "category": "Policy"},
+        )
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+
+        chunk = DocumentChunk(
+            document_id=doc.id,
+            chunk_index=1,
+            content="# SupportIQ Express Replacement Policy\n1. Replacement Eligibility:\nCustomers may request an express replacement. Contact customer support.",
+            metadata_json={"embedding": [0.5, 0.5, 0.0, 0.0]},
+        )
+        session.add(chunk)
+        session.commit()
+
+        service = RetrievalService(db=session, user_id=user.id)
+        query = "Does SupportIQ offer holographic telepathic customer support?"
+        candidates = service.retrieve(query, top_k=5, retrieval_method="hybrid")
+        assert len(candidates) >= 1
+
+        top_chunk = candidates[0]
+        substantive_terms = top_chunk.get("substantive_matched_terms", [])
+        assert len(substantive_terms) == 0, f"Expected 0 substantive terms, got: {substantive_terms}"
+
+        has_evidence = (
+            len(candidates) > 0
+            and top_chunk.get("similarity_score", 0) >= 0.15
+            and (
+                len(substantive_terms) >= 2
+                or top_chunk.get("lexical_score", 0) >= 0.35
+            )
+        )
+        assert not has_evidence, "Query should be refused as unsupported, not treated as having evidence!"
+
+

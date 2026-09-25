@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import mimetypes
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as FastPath, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_pagination
@@ -177,7 +179,7 @@ async def run_document_pipeline(document: Document, payload: bytes, original_nam
     document.status = "EMBEDDING"
     document.status = "INDEXING"
     document.status = "COMPLETED"
-    document.metadata_json["indexed_at"] = datetime.now(timezone.utc)
+    document.metadata_json["indexed_at"] = datetime.now(timezone.utc).isoformat()
     document.metadata_json["error"] = None
     return document
 
@@ -241,6 +243,55 @@ def get_document(
     return doc_dict
 
 
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: int = FastPath(..., gt=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(Document).filter(Document.id == document_id)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name in ["Administrator", "Support Agent", "Agent"]))
+    if not is_privileged:
+        query = query.filter((Document.owner_id == current_user.id) | (Document.owner_id.is_(None)))
+    document = query.first()
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "not_found", "message": "Document was not found."})
+
+    metadata = document.metadata_json or {}
+    filename = metadata.get("filename") or f"{document.title}.txt"
+    safe_filename = os.path.basename(filename)
+
+    storage_path_str = metadata.get("storage_path")
+    if storage_path_str:
+        file_path = Path(storage_path_str).resolve()
+        storage_root = document_storage_root().resolve()
+        try:
+            file_path.relative_to(storage_root)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"status": "access_denied", "message": "Invalid storage path."})
+
+        if file_path.is_file():
+            content_type, _ = mimetypes.guess_type(safe_filename)
+            content_type = content_type or "application/octet-stream"
+            return FileResponse(
+                path=str(file_path),
+                filename=safe_filename,
+                media_type=content_type,
+            )
+
+    if document.content is not None:
+        content_bytes = document.content.encode("utf-8")
+        if not safe_filename.endswith(".txt") and not any(safe_filename.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+            safe_filename += ".txt"
+        return Response(
+            content=content_bytes,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        )
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "file_not_found", "message": "Original document file is not available."})
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
@@ -298,6 +349,7 @@ async def upload_document(
         db.refresh(document)
         return serialize_document(document)
     except Exception as exc:  # pragma: no cover - preserves explicit failure state for processing errors.
+        db.rollback()
         document.status = "FAILED"
         document.metadata_json = {
             **(document.metadata_json or {}),

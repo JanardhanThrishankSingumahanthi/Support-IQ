@@ -10,6 +10,7 @@ import {
   StopGenerationButton,
 } from '../components/common/UIStateFeedback'
 import { getStoredSession } from '../lib/auth'
+import { SupportIQIcon } from '../components/brand/Logo'
 import type { ChatMessage, CitationItem } from '../types'
 
 const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
@@ -22,7 +23,13 @@ export function Chat() {
   const [input, setInput] = useState('')
   const [pipelineState, setPipelineState] = useState<'idle' | 'retrieving' | 'generating' | 'verifying'>('idle')
   const [useKB, setUseKB] = useState(true)
-  const [selectedModel, setSelectedModel] = useState('QLoRA (Fine-tuned)')
+  const [selectedModel, setSelectedModel] = useState('SupportIQ QLoRA (4-bit NF4)')
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; available: boolean }>>([
+    { id: 'qlora', name: 'SupportIQ QLoRA (4-bit NF4)', description: 'Fine-tuned 4-bit NF4 adapter (0.46 GB VRAM)', available: true },
+    { id: 'lora', name: 'SupportIQ LoRA (FP16)', description: 'Fine-tuned FP16 adapter (0.84s latency)', available: true },
+    { id: 'base', name: 'Base Qwen 0.5B (Zero-Shot RAG)', description: 'Base Qwen 0.5B model', available: true },
+    { id: 'extractive', name: 'Extractive Synthesizer', description: 'Deterministic sentence-level extraction', available: true },
+  ])
   const [previewCitation, setPreviewCitation] = useState<CitationItem | null>(null)
   const [escalationTicket, setEscalationTicket] = useState<{ id: number; title: string } | null>(null)
   const [isEscalating, setIsEscalating] = useState(false)
@@ -30,6 +37,10 @@ export function Chat() {
   const [kbDocCount, setKbDocCount] = useState<number | null>(null)
   const [recentDocs, setRecentDocs] = useState<Array<{ id: number; filename: string; updated_at?: string; created_at: string }>>([])
   const [systemHealth, setSystemHealth] = useState<'operational' | 'degraded' | 'checking'>('checking')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachedFile, setAttachedFile] = useState<{ id: number; filename: string; size: number } | null>(null)
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -47,16 +58,25 @@ export function Chat() {
     if (!session?.token) return
     const fetchKbStatus = async () => {
       try {
-        const [docsRes, healthRes] = await Promise.all([
+        const [docsRes, healthRes, modelsRes] = await Promise.all([
           fetch(`${apiBase}/api/v1/documents?page=1&page_size=3`, {
             headers: { Authorization: `Bearer ${session.token}` },
           }),
           fetch(`${apiBase}/api/v1/health`),
+          fetch(`${apiBase}/api/v1/chat/models`, {
+            headers: { Authorization: `Bearer ${session.token}` },
+          }).catch(() => null),
         ])
         if (docsRes.ok) {
           const data = await docsRes.json()
           setRecentDocs(data.items || [])
           setKbDocCount(typeof data.total === 'number' ? data.total : (data.items || []).length)
+        }
+        if (modelsRes && modelsRes.ok) {
+          const mData = await modelsRes.json()
+          if (mData.models && Array.isArray(mData.models)) {
+            setAvailableModels(mData.models)
+          }
         }
         if (healthRes.ok) {
           const hData = await healthRes.json()
@@ -71,11 +91,64 @@ export function Chat() {
     fetchKbStatus()
   }, [session?.token])
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !session?.token) return
+
+    setIsUploadingAttachment(true)
+    setAttachmentError(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('category', 'Chat Attachment')
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/documents`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        body: formData,
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData?.detail?.message || 'Failed to upload document to this session.')
+      }
+
+      const uploadedDoc = await res.json()
+      setAttachedFile({
+        id: uploadedDoc.id,
+        filename: uploadedDoc.filename || file.name,
+        size: uploadedDoc.size || file.size,
+      })
+
+      setKbDocCount((prev) => (prev !== null ? prev + 1 : 1))
+      setRecentDocs((prev) => [
+        { id: uploadedDoc.id, filename: uploadedDoc.filename || file.name, created_at: new Date().toISOString() },
+        ...prev,
+      ])
+
+      if (!input.trim()) {
+        setInput(`Please analyze and answer questions from the attached document: ${uploadedDoc.filename || file.name}`)
+      }
+    } catch (err: any) {
+      setAttachmentError(err.message || 'Error uploading document to this session.')
+    } finally {
+      setIsUploadingAttachment(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
   const handleSend = async (textToSend?: string) => {
-    const question = (textToSend || input).trim()
+    let question = (textToSend || input).trim()
+    if (!question && attachedFile) {
+      question = `Please analyze and answer questions from the attached document: ${attachedFile.filename}`
+    }
     if (!question || !session?.token) return
 
     setInput('')
+    const currentAttachment = attachedFile
     const userMsgId = Date.now()
     const newUserMsg: ChatMessage = {
       id: userMsgId,
@@ -83,9 +156,11 @@ export function Chat() {
       role: 'user',
       content: question,
       created_at: new Date().toISOString(),
+      metadata_json: currentAttachment ? { attachment: currentAttachment } : undefined,
     }
 
     setMessages((prev) => [...prev, newUserMsg])
+    setAttachedFile(null)
     setPipelineState('retrieving')
 
     try {
@@ -100,6 +175,8 @@ export function Chat() {
           content: question,
           use_knowledge_base: useKB,
           model_name: selectedModel,
+          attachment_document_id: currentAttachment?.id,
+          attachment: currentAttachment,
         }),
       })
 
@@ -222,9 +299,20 @@ export function Chat() {
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-6 overflow-hidden">
       {/* Central Chat Interface */}
-      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#0c1424]">
+      <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#0c1424]">
+        {/* Background Logo Watermark */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden select-none z-0"
+        >
+          <div className="relative -translate-y-28 sm:-translate-y-36">
+            <div className="absolute -inset-10 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
+            <SupportIQIcon className="h-64 w-64 sm:h-72 sm:w-72 opacity-[0.16] drop-shadow-[0_0_35px_rgba(6,182,212,0.3)]" />
+          </div>
+        </div>
+
         {/* Chat Header Quotes */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 px-6 py-2.5 text-[11px] text-slate-400 bg-slate-950/40">
+        <div className="relative z-10 flex items-center justify-between border-b border-slate-800/80 px-6 py-2.5 text-[11px] text-slate-400 bg-slate-950/40">
           <span className="italic font-serif">"Knowledge turns support into solutions."</span>
           <span className="font-semibold tracking-wider text-cyan-400 uppercase">
             Ask. Retrieve. Verify. Resolve.
@@ -232,7 +320,7 @@ export function Chat() {
         </div>
 
         {/* Messages / Welcome View */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+        <div className="relative z-10 flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           {messages.length === 0 ? (
             <div className="mx-auto max-w-2xl space-y-6 py-4 text-center">
               {/* Hero Title */}
@@ -314,6 +402,12 @@ export function Chat() {
                           : 'border border-slate-800 bg-[#091120] text-slate-100 rounded-bl-none shadow-md'
                       }`}
                     >
+                      {isUser && meta.attachment && (
+                        <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-cyan-700/80 border border-cyan-400/50 px-2.5 py-1 text-[11px] text-cyan-100 font-medium">
+                          <span>📎</span>
+                          <span>Attached: {meta.attachment.filename}</span>
+                        </div>
+                      )}
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     </div>
 
@@ -368,17 +462,44 @@ export function Chat() {
                       />
                     )}
 
+                    {/* Model Unavailable truthful notice */}
+                    {!isUser && meta.status === 'model_unavailable' && (
+                      <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 p-3 text-xs text-amber-200">
+                        <div className="flex items-center gap-1.5 font-semibold text-amber-300 mb-1">
+                          <span>⚠️</span>
+                          <span>Model Runtime Unavailable</span>
+                        </div>
+                        <p className="text-[11px] text-amber-200/90 leading-relaxed">{msg.content}</p>
+                      </div>
+                    )}
+
                     {/* Feedback row */}
                     {!isUser && (
-                      <div className="flex items-center gap-3 text-slate-500 text-[11px] pt-1">
+                      <div className="flex items-center flex-wrap gap-2.5 text-slate-500 text-[11px] pt-1">
                         <button type="button" className="hover:text-cyan-400 transition" title="Helpful">
                           👍
                         </button>
                         <button type="button" className="hover:text-rose-400 transition" title="Not helpful">
                           👎
                         </button>
-                        {meta.latency_ms && (
-                          <span className="text-[10px] text-slate-600">Generated in {meta.latency_ms}ms</span>
+                        {meta.model && (
+                          <span className="rounded bg-slate-800/90 px-2 py-0.5 text-[9px] text-cyan-300 font-mono border border-slate-700/60 shadow-sm">
+                            {meta.model}
+                          </span>
+                        )}
+                        {meta.generation_latency_ms ? (
+                          <span className="text-[10px] text-emerald-400 font-mono">
+                            ⚡ Gen: {meta.generation_latency_ms}ms
+                          </span>
+                        ) : meta.latency_ms ? (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            Total: {meta.latency_ms}ms
+                          </span>
+                        ) : null}
+                        {meta.peak_vram_gb && (
+                          <span className="text-[10px] text-purple-400 font-mono">
+                            VRAM: {meta.peak_vram_gb} GB
+                          </span>
                         )}
                       </div>
                     )}
@@ -399,7 +520,7 @@ export function Chat() {
         </div>
 
         {/* Input Box Area */}
-        <div className="border-t border-slate-800 bg-[#070d18] p-4">
+        <div className="relative z-10 border-t border-slate-800 bg-[#070d18] p-4">
           <form
             onSubmit={(e) => {
               e.preventDefault()
@@ -407,6 +528,41 @@ export function Chat() {
             }}
             className="rounded-2xl border border-slate-700/80 bg-slate-900/90 p-3 shadow-xl focus-within:border-cyan-500/60 transition"
           >
+            {/* Attached file chip */}
+            {attachedFile && (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-cyan-500/40 bg-cyan-950/60 px-3 py-1.5 text-xs text-cyan-200">
+                <div className="flex items-center gap-2 truncate">
+                  <span>📄</span>
+                  <span className="font-semibold text-white truncate">{attachedFile.filename}</span>
+                  <span className="text-[10px] text-cyan-400 font-mono">
+                    ({(attachedFile.size / 1024).toFixed(1)} KB)
+                  </span>
+                  <span className="rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold">
+                    Attached & Indexed
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachedFile(null)}
+                  className="text-slate-400 hover:text-white transition text-xs ml-2 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {isUploadingAttachment && (
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-slate-900 px-3 py-1.5 text-xs text-cyan-300">
+                <span className="text-cyan-400 animate-pulse">⏳</span>
+                <span>Uploading and indexing document to session...</span>
+              </div>
+            )}
+            {attachmentError && (
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-xs text-rose-300">
+                <span>{attachmentError}</span>
+                <button type="button" onClick={() => setAttachmentError(null)} className="text-rose-400 hover:text-white">✕</button>
+              </div>
+            )}
+
             <textarea
               rows={2}
               value={input}
@@ -417,20 +573,29 @@ export function Chat() {
                   handleSend()
                 }
               }}
-              placeholder="Ask a question about your support knowledge base..."
+              placeholder={attachedFile ? `Ask any question about ${attachedFile.filename}...` : "Ask a question about your support knowledge base..."}
               className="w-full resize-none bg-transparent text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none"
             />
 
             {/* Bottom Input Actions Bar */}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-2.5 text-xs text-slate-400">
               <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept=".pdf,.docx,.txt,.csv"
+                  className="hidden"
+                />
                 <button
                   type="button"
-                  onClick={() => navigate('/documents')}
-                  className="flex items-center gap-1 hover:text-slate-200 transition"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingAttachment}
+                  className="flex items-center gap-1 hover:text-cyan-300 transition disabled:opacity-50 cursor-pointer"
+                  title="Attach a document (.pdf, .docx, .txt, .csv) to this chat session"
                 >
                   <span>📎</span>
-                  <span className="text-[11px]">Attach File</span>
+                  <span className="text-[11px] font-medium">{isUploadingAttachment ? 'Uploading...' : 'Attach File'}</span>
                 </button>
 
                 <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
@@ -448,17 +613,18 @@ export function Chat() {
                   </button>
                 </div>
 
-                <div className="hidden sm:flex items-center gap-1 pl-2 border-l border-slate-800">
-                  <span className="text-[11px]">Model:</span>
+                <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-slate-800">
+                  <span className="text-[11px] text-slate-400">Model:</span>
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="rounded bg-slate-950 border border-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300 focus:outline-none"
+                    className="rounded-lg bg-slate-950 border border-slate-800 px-2 py-1 text-[10px] text-cyan-300 focus:outline-none focus:border-cyan-500/50 cursor-pointer shadow-sm"
                   >
-                    <option>QLoRA (Fine-tuned)</option>
-                    <option>RAG + LoRA</option>
-                    <option>RAG (Base)</option>
-                    <option>Base LLM</option>
+                    {availableModels.map((m) => (
+                      <option key={m.id} value={m.name} className="bg-slate-900 text-slate-100">
+                        {m.name} {!m.available ? '(Unavailable)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

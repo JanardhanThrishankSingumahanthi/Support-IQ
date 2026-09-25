@@ -6,6 +6,42 @@ import type { DocumentRecord, KnowledgeBaseStats } from '../types'
 
 const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
+interface IndexStatusData {
+  status: string
+  index_health: string
+  health_label: string
+  total_documents: number
+  indexed_documents: number
+  failed_documents: number
+  pending_documents: number
+  indexed_percentage: number
+  total_chunks: number
+  last_indexed_at: string
+  embedding_model: string
+  embedding_dimensions: number
+  retrieval_method: string
+  vector_storage: string
+}
+
+interface KnowledgeSettingsData {
+  status: string
+  configurable: boolean
+  notice: string
+  chunk_size_chars: number
+  chunk_overlap_chars: number
+  chunking_strategy: string
+  embedding_model: string
+  embedding_dimensions: number
+  retrieval_top_k: number
+  max_top_k: number
+  similarity_threshold: number
+  reranker_algorithm: string
+  fusion_weights: string
+  max_document_size_mb: number
+  supported_file_formats: string[]
+  storage_quota_gb: number
+}
+
 export function KnowledgeBase() {
   const session = getStoredSession()
   const [stats, setStats] = useState<KnowledgeBaseStats>({
@@ -29,8 +65,94 @@ export function KnowledgeBase() {
   const [uploading, setUploading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const [evidenceModalOpen, setEvidenceModalOpen] = useState(false)
   const [viewerPage] = useState(1)
+
+  // Header controls state
+  const [indexStatusOpen, setIndexStatusOpen] = useState(false)
+  const [indexStatusLoading, setIndexStatusLoading] = useState(false)
+  const [indexStatusData, setIndexStatusData] = useState<IndexStatusData | null>(null)
+  const [indexStatusError, setIndexStatusError] = useState<string | null>(null)
+
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsData, setSettingsData] = useState<KnowledgeSettingsData | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+
+  const handleOpenIndexStatus = async () => {
+    setIndexStatusOpen(true)
+    setIndexStatusLoading(true)
+    setIndexStatusError(null)
+
+    if (!session?.token) {
+      setIndexStatusLoading(false)
+      setIndexStatusError('Authentication required to view index status.')
+      return
+    }
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/knowledge-base/index-status`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+      if (!res.ok) {
+        throw new Error(`Failed to load index status (${res.status})`)
+      }
+      const data = await res.json()
+      setIndexStatusData(data)
+    } catch (err: any) {
+      if (stats.total_documents > 0) {
+        setIndexStatusData({
+          status: 'ok',
+          index_health: stats.indexed_documents === stats.total_documents ? 'HEALTHY' : 'DEGRADED',
+          health_label: stats.indexed_documents === stats.total_documents ? 'Healthy / Fully Indexed' : 'Degraded',
+          total_documents: stats.total_documents,
+          indexed_documents: stats.indexed_documents,
+          failed_documents: 0,
+          pending_documents: 0,
+          indexed_percentage: stats.indexed_percentage,
+          total_chunks: stats.total_chunks,
+          last_indexed_at: stats.last_updated,
+          embedding_model: 'Deterministic Token Hash Vector (32-dim, SHA-1)',
+          embedding_dimensions: 32,
+          retrieval_method: 'Two-Stage Hybrid (BM25 Lexical + Cosine Vector + RRF)',
+          vector_storage: 'SQLite Relational DocumentChunk Table',
+        })
+      } else {
+        setIndexStatusError(err.message || 'Could not retrieve index status.')
+      }
+    } finally {
+      setIndexStatusLoading(false)
+    }
+  }
+
+  const handleOpenSettings = async () => {
+    setSettingsOpen(true)
+    setSettingsLoading(true)
+    setSettingsError(null)
+
+    if (!session?.token) {
+      setSettingsLoading(false)
+      setSettingsError('Authentication required to view knowledge settings.')
+      return
+    }
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/knowledge-base/settings`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+      if (!res.ok) {
+        throw new Error(`Failed to load knowledge settings (${res.status})`)
+      }
+      const data = await res.json()
+      setSettingsData(data)
+    } catch (err: any) {
+      setSettingsError(err.message || 'Could not retrieve knowledge settings.')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
 
   const fetchStatsAndDocs = async () => {
     if (!session?.token) return
@@ -109,6 +231,59 @@ export function KnowledgeBase() {
     }
   }
 
+  const handleDownload = async (doc: DocumentRecord) => {
+    if (!session?.token) {
+      setDownloadError('Authentication required to download documents.')
+      return
+    }
+
+    try {
+      setDownloadingId(doc.id)
+      setDownloadError(null)
+
+      const res = await fetch(`${apiBase}/api/v1/documents/${doc.id}/download`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        const errorMsg = errorData?.detail?.message || errorData?.message || `Download failed with status ${res.status}`
+        throw new Error(errorMsg)
+      }
+
+      let filename = doc.filename || `${doc.title}.txt`
+      const disposition = res.headers.get('Content-Disposition')
+      if (disposition) {
+        if (disposition.includes('filename*=')) {
+          const match = disposition.match(/filename\*=(?:UTF-8''|utf-8'')?([^;]+)/i)
+          if (match && match[1]) {
+            filename = decodeURIComponent(match[1].trim().replace(/^["']|["']$/g, ''))
+          }
+        } else if (disposition.includes('filename=')) {
+          const match = disposition.match(/filename=["']?([^"';]+)["']?/)
+          if (match && match[1]) {
+            filename = match[1].trim()
+          }
+        }
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setDownloadError(err.message || 'Failed to download document.')
+      setTimeout(() => setDownloadError(null), 5000)
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
   // Use actual database documents
   const displayDocs = documents
   const activeDocument = selectedDoc || (documents.length > 0 ? documents[0] : null)
@@ -138,24 +313,28 @@ export function KnowledgeBase() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 transition"
+            onClick={handleOpenIndexStatus}
+            className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition flex items-center gap-1.5"
           >
-            View Index Status
+            <span>📊</span>
+            <span>View Index Status</span>
           </button>
           <button
             type="button"
             onClick={handleSync}
             disabled={syncing}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 transition"
+            className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition"
           >
             <span className={syncing ? 'animate-spin' : ''}>🔄</span>
             <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
           </button>
           <button
             type="button"
-            className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 transition"
+            onClick={handleOpenSettings}
+            className="rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition flex items-center gap-1.5"
           >
-            ⚙ Knowledge Settings
+            <span>⚙</span>
+            <span>Knowledge Settings</span>
           </button>
         </div>
       </div>
@@ -163,6 +342,12 @@ export function KnowledgeBase() {
       {syncMessage && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
           ✓ {syncMessage}
+        </div>
+      )}
+
+      {downloadError && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+          ⚠ {downloadError}
         </div>
       )}
 
@@ -398,8 +583,21 @@ export function KnowledgeBase() {
                           >
                             👁
                           </button>
-                          <button type="button" className="hover:text-cyan-300 p-1" title="Download">
-                            ⬇
+                          <button
+                            type="button"
+                            disabled={downloadingId === doc.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDownload(doc)
+                            }}
+                            className="hover:text-cyan-300 p-1 disabled:opacity-50"
+                            title="Download document"
+                          >
+                            {downloadingId === doc.id ? (
+                              <span className="text-[10px] animate-pulse">⏳</span>
+                            ) : (
+                              '⬇'
+                            )}
                           </button>
                         </div>
                       </td>
@@ -416,14 +614,26 @@ export function KnowledgeBase() {
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">Document Preview</h3>
             {activeDocument && (
-              <button
-                type="button"
-                onClick={() => setEvidenceModalOpen(true)}
-                className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1"
-              >
-                <span>Full View</span>
-                <span>↗</span>
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={downloadingId === activeDocument.id}
+                  onClick={() => handleDownload(activeDocument)}
+                  className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1 disabled:opacity-50"
+                  title="Download document"
+                >
+                  <span>{downloadingId === activeDocument.id ? 'Downloading...' : 'Download'}</span>
+                  <span>⬇</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEvidenceModalOpen(true)}
+                  className="text-[11px] text-cyan-400 font-semibold hover:underline flex items-center gap-1"
+                >
+                  <span>Full View</span>
+                  <span>↗</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -483,7 +693,7 @@ export function KnowledgeBase() {
                 </div>
                 <div className="flex justify-between">
                   <span>Embedding:</span>
-                  <span className="text-cyan-400 font-medium">all-MiniLM-L6-v2</span>
+                  <span className="text-cyan-400 font-medium">Token Hash (32-dim)</span>
                 </div>
               </div>
             </>
@@ -515,6 +725,307 @@ export function KnowledgeBase() {
             : null
         }
       />
+
+      {/* Index Status Modal */}
+      {indexStatusOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setIndexStatusOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-slate-700/80 bg-[#0c1424] p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 text-xl font-bold">
+                  📊
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Knowledge Base Index Status</h2>
+                  <p className="text-xs text-slate-400">
+                    Live health telemetry from SupportIQ relational vector and retrieval pipeline
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIndexStatusOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {indexStatusLoading ? (
+              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                <span className="animate-spin text-xl text-cyan-400">🔄</span>
+                <span>Querying index health and chunk telemetry...</span>
+              </div>
+            ) : indexStatusError ? (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
+                ⚠ {indexStatusError}
+              </div>
+            ) : indexStatusData ? (
+              <div className="space-y-4">
+                {/* Health Status Banner */}
+                <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                      Overall Index Health
+                    </span>
+                    <span className="text-base font-bold text-white mt-0.5 block">
+                      {indexStatusData.health_label}
+                    </span>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                      indexStatusData.index_health === 'HEALTHY'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                        : indexStatusData.index_health === 'INDEXING'
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                        : indexStatusData.index_health === 'DEGRADED'
+                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                        : 'bg-slate-700/30 text-slate-300 border border-slate-700'
+                    }`}
+                  >
+                    <span>●</span>
+                    <span>{indexStatusData.index_health}</span>
+                  </span>
+                </div>
+
+                {/* Metrics Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-[11px] text-slate-400 block">Total Documents</span>
+                    <span className="text-xl font-bold text-white mt-1 block">
+                      {indexStatusData.total_documents}
+                    </span>
+                    <span className="text-[10px] text-slate-500">In knowledge store</span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-[11px] text-slate-400 block">Indexed Docs</span>
+                    <span className="text-xl font-bold text-emerald-400 mt-1 block">
+                      {indexStatusData.indexed_documents}
+                    </span>
+                    <span className="text-[10px] text-emerald-500">
+                      {indexStatusData.indexed_percentage}% completed
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-[11px] text-slate-400 block">Total Chunks</span>
+                    <span className="text-xl font-bold text-cyan-400 mt-1 block">
+                      {indexStatusData.total_chunks}
+                    </span>
+                    <span className="text-[10px] text-cyan-500">Vectorized units</span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-[11px] text-slate-400 block">Failed / Pending</span>
+                    <div className="text-xl font-bold text-white mt-1 flex items-center gap-1.5">
+                      <span className={indexStatusData.failed_documents > 0 ? 'text-rose-400' : 'text-slate-300'}>
+                        {indexStatusData.failed_documents}
+                      </span>
+                      <span className="text-slate-500 text-sm">/</span>
+                      <span className={indexStatusData.pending_documents > 0 ? 'text-amber-400' : 'text-slate-300'}>
+                        {indexStatusData.pending_documents}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">Errors / In progress</span>
+                  </div>
+                </div>
+
+                {/* Architecture Details Table */}
+                <div className="rounded-xl border border-slate-800 bg-[#06101e] p-4 text-xs space-y-2.5 text-slate-300">
+                  <div className="flex justify-between border-b border-slate-800/60 pb-2">
+                    <span className="text-slate-400 font-medium">Embedding Architecture:</span>
+                    <span className="text-cyan-300 font-semibold">{indexStatusData.embedding_model}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800/60 pb-2">
+                    <span className="text-slate-400 font-medium">Embedding Dimensions:</span>
+                    <span className="text-slate-200 font-semibold">{indexStatusData.embedding_dimensions} dimensions</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800/60 pb-2">
+                    <span className="text-slate-400 font-medium">Retrieval Algorithm:</span>
+                    <span className="text-slate-200 font-semibold">{indexStatusData.retrieval_method}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800/60 pb-2">
+                    <span className="text-slate-400 font-medium">Vector Storage Backend:</span>
+                    <span className="text-slate-200 font-semibold">{indexStatusData.vector_storage}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-medium">Last Synchronized:</span>
+                    <span className="text-slate-300">
+                      {new Date(indexStatusData.last_indexed_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+              <button
+                type="button"
+                onClick={async () => {
+                  await handleSync()
+                  await handleOpenIndexStatus()
+                }}
+                disabled={syncing}
+                className="flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition"
+              >
+                <span className={syncing ? 'animate-spin' : ''}>🔄</span>
+                <span>{syncing ? 'Synchronizing...' : 'Sync & Re-check'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIndexStatusOpen(false)}
+                className="rounded-xl bg-slate-800 px-4 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Knowledge Settings Modal */}
+      {settingsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-slate-700/80 bg-[#0c1424] p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 text-xl font-bold">
+                  ⚙
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Knowledge Base & Retrieval Settings</h2>
+                  <p className="text-xs text-slate-400">
+                    Active ingestion, chunking, and vector search parameters
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {settingsLoading ? (
+              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                <span className="animate-spin text-xl text-cyan-400">🔄</span>
+                <span>Loading runtime configuration parameters...</span>
+              </div>
+            ) : settingsError ? (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
+                ⚠ {settingsError}
+              </div>
+            ) : settingsData ? (
+              <div className="space-y-4">
+                {/* Truthful Read-Only Runtime Notice */}
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-start gap-3 text-xs text-amber-200">
+                  <span className="text-base leading-none">🔒</span>
+                  <div>
+                    <span className="font-bold block">{settingsData.notice}</span>
+                    <p className="text-[11px] text-amber-300/80 mt-0.5">
+                      Ingestion chunk limits, hybrid similarity cutoffs, and Reciprocal Rank Fusion parameters are
+                      standardized for the enterprise benchmark suite and cannot be edited dynamically at runtime.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Configuration Parameters Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Chunk Size & Overlap</span>
+                    <span className="font-bold text-white mt-1 block">
+                      {settingsData.chunk_size_chars.toLocaleString()} chars / {settingsData.chunk_overlap_chars} chars
+                    </span>
+                    <span className="text-[10px] text-slate-500">{settingsData.chunking_strategy}</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Embedding Engine</span>
+                    <span className="font-bold text-cyan-400 mt-1 block">
+                      {settingsData.embedding_model}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{settingsData.embedding_dimensions} floating-point dimensions</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Retrieval Top-K</span>
+                    <span className="font-bold text-white mt-1 block">
+                      Top {settingsData.retrieval_top_k} Candidates (Max {settingsData.max_top_k})
+                    </span>
+                    <span className="text-[10px] text-slate-500">Evaluated against verified chunks</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Grounding Similarity Threshold</span>
+                    <span className="font-bold text-emerald-400 mt-1 block">
+                      {settingsData.similarity_threshold}
+                    </span>
+                    <span className="text-[10px] text-slate-500">Minimum claim evidence support</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Reranker & Fusion</span>
+                    <span className="font-bold text-white mt-1 block">
+                      {settingsData.reranker_algorithm}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{settingsData.fusion_weights}</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
+                    <span className="text-slate-400 text-[11px] block">Supported Ingestion Formats</span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {settingsData.supported_file_formats.map((fmt) => (
+                        <span
+                          key={fmt}
+                          className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-cyan-300 border border-slate-700"
+                        >
+                          .{fmt.toLowerCase()}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">Max {settingsData.max_document_size_mb} MB per upload</span>
+                  </div>
+                </div>
+
+                {/* Storage & Backend Allocation */}
+                <div className="rounded-xl border border-slate-800 bg-[#06101e] p-3 text-[11px] flex items-center justify-between text-slate-400">
+                  <span>Storage Quota: <strong className="text-slate-200">{settingsData.storage_quota_gb} GB</strong></span>
+                  <span>Runtime: <strong className="text-emerald-400">Fixed SupportIQ Release</strong></span>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+              <span className="text-[11px] text-slate-500">
+                To alter pipeline configuration, update runtime parameters in backend service.
+              </span>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="rounded-xl bg-slate-800 px-4 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

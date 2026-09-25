@@ -13,11 +13,6 @@ const apiBase = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
 export const Security: React.FC = () => {
   const [activeTab, setActiveTab] = useState('Overview');
   
-  // Toggles for Authentication & Access Control
-  const [mfaEnabled, setMfaEnabled] = useState(false);
-  const [passwordPolicy, setPasswordPolicy] = useState(true);
-  const [sessionTimeout, setSessionTimeout] = useState('30 minutes');
-  const [ssoEnabled, setSsoEnabled] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [activeUsersCount, setActiveUsersCount] = useState<number>(1);
@@ -214,66 +209,62 @@ export const Security: React.FC = () => {
             <p className="text-xs text-slate-400 mb-4">Credentials, tokens, and authorization policies</p>
 
             <div className="space-y-4 text-xs">
-              {/* MFA Toggle */}
+              {/* MFA Policy */}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium text-slate-200">Multi-Factor Authentication (MFA)</div>
-                  <div className="text-[11px] text-slate-400">System Policy: Optional TOTP enforcement for administrators.</div>
+                  <div className="text-[11px] text-slate-400">Server Policy: Optional TOTP enforcement for administrators.</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">Policy toggle not configured in this release</div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMfaEnabled(!mfaEnabled)}
-                  className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${mfaEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}
+                  disabled
+                  title="MFA policy configuration endpoint is not available in this release."
+                  className="w-10 h-5 rounded-full bg-slate-700/60 cursor-not-allowed relative shrink-0 opacity-60"
                 >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${mfaEnabled ? 'translate-x-5' : ''}`} />
+                  <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-slate-400" />
                 </button>
               </div>
 
-              {/* Password Policy Toggle */}
+              {/* Password Policy */}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium text-slate-200">Password Policy</div>
-                  <div className="text-[11px] text-slate-400">Enforce strong password requirements.</div>
+                  <div className="text-[11px] text-slate-400">Enforce strong password requirements (min 8 characters).</div>
+                  <div className="text-[10px] text-emerald-400/80 mt-0.5">✔ Active system rule (enforced at API level)</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPasswordPolicy(!passwordPolicy)}
-                  className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${passwordPolicy ? 'bg-cyan-500' : 'bg-slate-700'}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${passwordPolicy ? 'translate-x-5' : ''}`} />
-                </button>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-medium shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Enforced</span>
+                </div>
               </div>
 
               {/* Session Timeout */}
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-medium text-slate-200">Session Timeout</div>
-                  <div className="text-[11px] text-slate-400">Automatically log out inactive users.</div>
+                  <div className="text-[11px] text-slate-400">Automatically expire inactive user tokens.</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">Server default: 60 minutes (SESSION_TTL_MINUTES)</div>
                 </div>
-                <select
-                  value={sessionTimeout}
-                  onChange={(e) => setSessionTimeout(e.target.value)}
-                  className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-cyan-500"
-                >
-                  <option>15 minutes</option>
-                  <option>30 minutes</option>
-                  <option>1 hour</option>
-                  <option>4 hours</option>
-                </select>
+                <div className="px-2.5 py-1 text-xs rounded-lg bg-slate-800/80 border border-slate-700/60 text-slate-300 font-mono text-[11px] shrink-0">
+                  60 minutes
+                </div>
               </div>
 
-              {/* SSO Toggle */}
+              {/* SSO Policy */}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium text-slate-200">Single Sign-On (SSO)</div>
-                  <div className="text-[11px] text-slate-400">Enable login via institutional/organization SSO.</div>
+                  <div className="text-[11px] text-slate-400">Enable login via institutional/organization SSO provider.</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">SSO provider not configured in this release</div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSsoEnabled(!ssoEnabled)}
-                  className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${ssoEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}
+                  disabled
+                  title="SSO integration is not configured in this release."
+                  className="w-10 h-5 rounded-full bg-slate-700/60 cursor-not-allowed relative shrink-0 opacity-60"
                 >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${ssoEnabled ? 'translate-x-5' : ''}`} />
+                  <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-slate-400" />
                 </button>
               </div>
             </div>
@@ -605,57 +596,67 @@ export const Security: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => alert('Viewing tamper-evident audit logs...')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="Audit logging service is not configured in this release."
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2 text-xs text-slate-400"
             >
-              <FileText className="w-4 h-4 text-purple-400 shrink-0" />
+              <FileText className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
                 <div className="font-medium text-[11px]">View Audit Logs</div>
-                <div className="text-[9px] text-slate-400">Track user activities</div>
+                <div className="text-[9px] text-slate-500">Not configured in this release</div>
               </div>
             </button>
 
             <button 
-              onClick={() => alert('Exporting SOC2 compliance security report...')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="Security reporting service is not configured in this release."
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2 text-xs text-slate-400"
             >
-              <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+              <Download className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
                 <div className="font-medium text-[11px]">Export Security Report</div>
-                <div className="text-[9px] text-slate-400">Download PDF/CSV</div>
+                <div className="text-[9px] text-slate-500">Not configured in this release</div>
               </div>
             </button>
 
             <button 
-              onClick={() => alert('Firewall IP access rules configuration')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="Firewall management is not configured in this release."
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2 text-xs text-slate-400"
             >
-              <Sliders className="w-4 h-4 text-amber-400 shrink-0" />
+              <Sliders className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
                 <div className="font-medium text-[11px]">Configure Firewall</div>
-                <div className="text-[9px] text-slate-400">Manage IP restrictions</div>
+                <div className="text-[9px] text-slate-500">Not configured in this release</div>
               </div>
             </button>
 
             <button 
-              onClick={() => alert('API Key token generator dialog')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="API key management is not configured in this release."
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2 text-xs text-slate-400"
             >
-              <Key className="w-4 h-4 text-indigo-400 shrink-0" />
+              <Key className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
                 <div className="font-medium text-[11px]">Manage API Keys</div>
-                <div className="text-[9px] text-slate-400">Create or revoke keys</div>
+                <div className="text-[9px] text-slate-500">Not configured in this release</div>
               </div>
             </button>
 
             <button 
-              onClick={() => alert('Historical logs purged. Reclaimed 450 MB.')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="Log purge routine is not configured in this release."
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2 text-xs text-slate-400"
             >
-              <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+              <Trash2 className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
                 <div className="font-medium text-[11px]">Purge Old Logs</div>
-                <div className="text-[9px] text-slate-400">Free up storage</div>
+                <div className="text-[9px] text-slate-500">Not configured in this release</div>
               </div>
             </button>
           </div>

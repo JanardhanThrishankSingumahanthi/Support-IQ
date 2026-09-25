@@ -8,7 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_pagination
-from app.db.models import EvaluationResult, Experiment, ExperimentRun, Model, ModelVersion, User
+from app.db.models import (
+    EvaluationDataset,
+    EvaluationResult,
+    EvaluationTestCase,
+    Experiment,
+    ExperimentRun,
+    Model,
+    ModelVersion,
+    User,
+)
+from app.services.evaluation_runner import EvaluationRunner
+from app.services.research_tables_service import get_research_data, format_markdown
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -68,6 +79,12 @@ class ExperimentRunRequest(BaseModel):
     model_variant: str | None = None
     configuration: dict[str, Any] | None = None
     metrics: dict[str, float | int | str | None] | None = None
+
+
+class RunEvaluationRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    dataset_id: int | None = None
+    model_variant: str = "RAG + QLoRA"
 
 
 def _serialize_metric(metric: EvaluationResult) -> dict[str, Any]:
@@ -148,6 +165,39 @@ def list_experiments(
     }
 
 
+@router.get("/research-tables")
+def get_research_tables(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    data = get_research_data()
+    md_content = format_markdown(data)
+    return {
+        "status": "ok",
+        "data": data,
+        "markdown": md_content,
+    }
+
+
+@router.get("/hardware")
+def get_hardware_telemetry(
+    current_user: User = Depends(get_current_user),
+):
+    from app.training.hardware import detect_hardware
+    profile = detect_hardware()
+    device_label = "NVIDIA CUDA" if profile.has_cuda else "CPU Execution Provider"
+    return {
+        "status": "ok",
+        "cuda_available": profile.has_cuda,
+        "device_name": device_label,
+        "hardware": device_label,
+        "gpu": device_label if profile.has_cuda else "None (CPU)",
+        "vram_gb": profile.vram_gb,
+        "cpu_count": profile.cpu_count,
+        "profile": profile.to_dict(),
+    }
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_experiment(payload: ExperimentCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     status_value = payload.status.upper()
@@ -189,6 +239,60 @@ def create_experiment(payload: ExperimentCreateRequest, db: Session = Depends(ge
         "status": "ok",
         "experiment": _serialize_experiment(experiment),
         "run": _serialize_run(run),
+    }
+
+
+@router.get("/datasets/list")
+def list_evaluation_datasets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    datasets = db.query(EvaluationDataset).all()
+    return {
+        "items": [
+            {
+                "id": d.id,
+                "name": d.name,
+                "description": d.description,
+                "version": d.version,
+                "test_case_count": len(d.test_cases),
+                "created_at": d.created_at,
+            }
+            for d in datasets
+        ]
+    }
+
+
+@router.get("/datasets/{dataset_id}/cases")
+def get_evaluation_test_cases(
+    dataset_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(EvaluationDataset).filter(EvaluationDataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail={"status": "not_found", "message": "Dataset not found."})
+
+    return {
+        "dataset": {
+            "id": dataset.id,
+            "name": dataset.name,
+            "description": dataset.description,
+            "version": dataset.version,
+            "total_cases": len(dataset.test_cases),
+        },
+        "items": [
+            {
+                "id": tc.id,
+                "question": tc.question,
+                "expected_answer": tc.expected_answer,
+                "expected_document_id": tc.expected_document_id,
+                "expected_chunk_id": tc.expected_chunk_id,
+                "category": tc.category,
+                "is_answerable": tc.is_answerable,
+            }
+            for tc in dataset.test_cases
+        ],
     }
 
 
@@ -291,9 +395,25 @@ def experiment_comparison(experiment_id: int = Path(..., gt=0), db: Session = De
     if experiment is None:
         raise HTTPException(status_code=404, detail={"status": "not_found", "message": "Experiment not found."})
 
+    # Collect variants dynamically from runs or fallback to default MODEL_VARIANTS
+    run_variants: list[str] = []
+    sorted_runs = sorted(experiment.runs, key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    for run in sorted_runs:
+        v = (run.config_json or {}).get("model_variant")
+        if v and v not in run_variants:
+            run_variants.append(v)
+
+    # Preserve consistent order if standard variants, otherwise use discovered run variants
+    if not run_variants:
+        variants_to_compare = MODEL_VARIANTS
+    elif all(v in MODEL_VARIANTS for v in run_variants):
+        variants_to_compare = [v for v in MODEL_VARIANTS if v in run_variants] or MODEL_VARIANTS
+    else:
+        variants_to_compare = run_variants
+
     comparison = []
-    for variant in MODEL_VARIANTS:
-        latest_run = next((run for run in sorted(experiment.runs, key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True) if (run.config_json or {}).get("model_variant") == variant), None)
+    for variant in variants_to_compare:
+        latest_run = next((run for run in sorted_runs if (run.config_json or {}).get("model_variant") == variant), None)
         metrics = (latest_run.metrics_json if latest_run else {}) or {}
         comparison.append({
             "variant": variant,
@@ -303,3 +423,29 @@ def experiment_comparison(experiment_id: int = Path(..., gt=0), db: Session = De
         })
 
     return {"status": "ok", "comparison": comparison, "proposed_configuration": "RAG + QLoRA"}
+
+
+@router.post("/{experiment_id}/run-evaluation")
+def run_model_evaluation(
+    experiment_id: int = Path(..., gt=0),
+    payload: RunEvaluationRequest = RunEvaluationRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail={"status": "not_found", "message": "Experiment not found."})
+
+    runner = EvaluationRunner(db=db)
+    try:
+        result = runner.run_benchmark(
+            experiment_id=experiment.id,
+            dataset_id=payload.dataset_id,
+            model_variant=payload.model_variant,
+        )
+        return {"status": "ok", "evaluation": result}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "evaluation_failed", "message": str(exc)},
+        )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import (
@@ -350,6 +352,38 @@ class EvaluationResult(Base, TimestampMixin):
     run: Mapped[ExperimentRun] = relationship(back_populates="evaluation_results")
 
 
+class EvaluationDataset(Base, TimestampMixin):
+    __tablename__ = "evaluation_datasets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[str | None] = mapped_column(String(50), default="1.0.0")
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+
+    test_cases: Mapped[list["EvaluationTestCase"]] = relationship(
+        back_populates="dataset", cascade="all, delete-orphan"
+    )
+
+
+class EvaluationTestCase(Base, TimestampMixin):
+    __tablename__ = "evaluation_test_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey("evaluation_datasets.id"), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_answer: Mapped[str | None] = mapped_column(Text)
+    expected_document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    expected_chunk_id: Mapped[int | None] = mapped_column(ForeignKey("document_chunks.id"), index=True)
+    category: Mapped[str] = mapped_column(String(100), default="General", nullable=False)
+    is_answerable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+
+    dataset: Mapped[EvaluationDataset] = relationship(back_populates="test_cases")
+    expected_document: Mapped[Document | None] = relationship()
+    expected_chunk: Mapped[DocumentChunk | None] = relationship()
+
+
 class Feedback(Base, TimestampMixin):
     __tablename__ = "feedback"
 
@@ -425,7 +459,9 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentVersion",
+    "EvaluationDataset",
     "EvaluationResult",
+    "EvaluationTestCase",
     "Evidence",
     "Experiment",
     "ExperimentRun",

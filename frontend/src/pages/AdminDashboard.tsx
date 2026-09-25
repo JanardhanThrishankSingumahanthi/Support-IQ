@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DonutGauge } from '../components/charts/Charts';
 import {
   Users, LifeBuoy, CheckCircle2, FileText, FlaskConical,
@@ -29,6 +30,7 @@ interface TicketItem {
 }
 
 export const AdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [userSearch, setUserSearch] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -41,6 +43,18 @@ export const AdminDashboard: React.FC = () => {
 
   const [users, setUsers] = useState<UserItem[]>([]);
   const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [gpuModel, setGpuModel] = useState<string>('');
+  const [kbStats, setKbStats] = useState<{
+    totalDocuments: number;
+    totalChunks: number;
+    storageUsed: string;
+    categories: Array<{ name: string; count: number; percent: number; color: string }>;
+  }>({
+    totalDocuments: 0,
+    totalChunks: 0,
+    storageUsed: '0 MB',
+    categories: [],
+  });
   const [analytics, setAnalytics] = useState({
     totalUsers: 0,
     totalTickets: 0,
@@ -120,6 +134,74 @@ export const AdminDashboard: React.FC = () => {
           const eData = await expRes.json();
           const count = eData.total || (eData.items || []).length || (Array.isArray(eData) ? eData.length : 0);
           setAnalytics((prev) => ({ ...prev, experimentsCount: count }));
+        }
+      })
+      .catch(() => {});
+
+    // 4. Fetch Hardware / GPU Profile (without hardcoding)
+    fetch(`${apiBase}/api/v1/experiments/hardware`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && (data.device_name || data.gpu || data.hardware)) {
+          setGpuModel(data.device_name || data.gpu || data.hardware);
+        } else {
+          fetch(`${apiBase}/api/v1/experiments/research-tables`, { headers })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((rData) => {
+              const hw = rData?.data?.scientific_disclosure?.hardware || rData?.data?.neural_models?.[0]?.hardware;
+              if (hw) {
+                setGpuModel(hw);
+              } else {
+                setGpuModel('Hardware Telemetry Unavailable');
+              }
+            })
+            .catch(() => setGpuModel('Hardware Telemetry Unavailable'));
+        }
+      })
+      .catch(() => {
+        fetch(`${apiBase}/api/v1/experiments/research-tables`, { headers })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((rData) => {
+            const hw = rData?.data?.scientific_disclosure?.hardware || rData?.data?.neural_models?.[0]?.hardware;
+            if (hw) {
+              setGpuModel(hw);
+            } else {
+              setGpuModel('Hardware Telemetry Unavailable');
+            }
+          })
+          .catch(() => setGpuModel('Hardware Telemetry Unavailable'));
+      });
+
+    // 5. Fetch Real Knowledge Base Stats (no static numbers, honest 0 state)
+    fetch(`${apiBase}/api/v1/knowledge-base/stats`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          const totalDocs = typeof data.total_documents === 'number' ? data.total_documents : 0;
+          const totalChunks = typeof data.total_chunks === 'number' ? data.total_chunks : 0;
+          const storageStr = data.storage_used_mb > 0
+            ? `${data.storage_used_mb} MB`
+            : data.storage_used_bytes > 0
+            ? `${(data.storage_used_bytes / 1024).toFixed(1)} KB`
+            : '0 MB';
+
+          const catColors = ['#06b6d4', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899'];
+          const rawCats = data.categories || {};
+          const catEntries = Object.entries(rawCats).filter(([_, count]) => (count as number) > 0);
+          const totalCatCounts = catEntries.reduce((sum, [_, count]) => sum + (count as number), 0) || totalDocs || 1;
+          const mappedCats = catEntries.map(([name, count], i) => ({
+            name,
+            count: count as number,
+            percent: Math.round(((count as number) / totalCatCounts) * 100),
+            color: catColors[i % catColors.length],
+          }));
+
+          setKbStats({
+            totalDocuments: totalDocs,
+            totalChunks: totalChunks,
+            storageUsed: storageStr,
+            categories: mappedCats,
+          });
         }
       })
       .catch(() => {});
@@ -347,7 +429,9 @@ export const AdminDashboard: React.FC = () => {
               <div className="flex flex-col items-center">
                 <DonutGauge value={76} max={100} size={110} strokeWidth={10} color="#f59e0b" label="GPU Load" />
                 <span className="text-xs text-slate-300 font-medium mt-1">76%</span>
-                <span className="text-[10px] text-slate-500">NVIDIA RTX 4090</span>
+                <span className="text-[10px] text-slate-400 font-medium truncate max-w-[130px] text-center" title={gpuModel || 'Detecting GPU...'}>
+                  {gpuModel ? (gpuModel.length > 20 ? gpuModel.slice(0, 20) + '...' : gpuModel) : 'Detecting GPU...'}
+                </span>
               </div>
             </div>
           </div>
@@ -662,36 +746,36 @@ export const AdminDashboard: React.FC = () => {
 
             <div className="grid grid-cols-3 gap-2 mb-4">
               <div className="p-2.5 rounded-lg bg-slate-800/50 text-center">
-                <div className="text-base font-bold text-slate-100">248</div>
+                <div className="text-base font-bold text-slate-100">{kbStats.totalDocuments.toLocaleString()}</div>
                 <div className="text-[10px] text-slate-400">Total Documents</div>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-800/50 text-center">
-                <div className="text-base font-bold text-slate-100">18,436</div>
+                <div className="text-base font-bold text-slate-100">{kbStats.totalChunks.toLocaleString()}</div>
                 <div className="text-[10px] text-slate-400">Total Chunks</div>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-800/50 text-center">
-                <div className="text-base font-bold text-slate-100">1.2 GB</div>
+                <div className="text-base font-bold text-slate-100">{kbStats.storageUsed}</div>
                 <div className="text-[10px] text-slate-400">Storage Used</div>
               </div>
             </div>
 
             <div className="space-y-2 text-xs">
               <div className="text-[11px] font-medium text-slate-400 mb-1">Top Categories</div>
-              {[
-                { name: 'Billing & Payments', percent: 28, color: '#06b6d4' },
-                { name: 'Account Management', percent: 18, color: '#3b82f6' },
-                { name: 'Technical Support', percent: 16, color: '#8b5cf6' },
-                { name: 'Product Information', percent: 14, color: '#f59e0b' },
-                { name: 'Refunds & Returns', percent: 12, color: '#ec4899' },
-              ].map((c) => (
-                <div key={c.name} className="flex items-center gap-2 text-[11px]">
-                  <span className="text-slate-300 w-32 truncate">{c.name}</span>
-                  <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${c.percent * 3}%`, backgroundColor: c.color }} />
+              {kbStats.categories.length > 0 ? (
+                kbStats.categories.map((c) => (
+                  <div key={c.name} className="flex items-center gap-2 text-[11px]">
+                    <span className="text-slate-300 w-32 truncate">{c.name}</span>
+                    <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, c.percent * 2)}%`, backgroundColor: c.color }} />
+                    </div>
+                    <span className="text-slate-400 w-8 text-right font-mono">{c.percent}%</span>
                   </div>
-                  <span className="text-slate-400 w-8 text-right font-mono">{c.percent}%</span>
+                ))
+              ) : (
+                <div className="text-[11px] text-slate-500 italic py-2 text-center">
+                  No category distribution available
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -713,7 +797,7 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => alert('Opening Document Ingestion Dialog...')}
+              onClick={() => navigate('/knowledge-base')}
               className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
             >
               <Upload className="w-4 h-4 text-purple-400 shrink-0" />
@@ -721,7 +805,7 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => window.location.href = '#/experiments'}
+              onClick={() => navigate('/experiments')}
               className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
             >
               <Play className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -729,7 +813,7 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => window.location.href = '#/analytics'}
+              onClick={() => navigate('/analytics')}
               className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
             >
               <BarChart3 className="w-4 h-4 text-amber-400 shrink-0" />
@@ -737,7 +821,7 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => window.location.href = '#/security'}
+              onClick={() => navigate('/security')}
               className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
             >
               <Settings className="w-4 h-4 text-indigo-400 shrink-0" />
@@ -745,11 +829,16 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => alert('Broadcast announcement prompt dialog')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
+              type="button"
+              disabled
+              title="Broadcast announcements service is not configured in this release"
+              className="p-3 rounded-lg bg-slate-800/40 border border-slate-800/70 text-left cursor-not-allowed opacity-60 flex items-center gap-2.5 text-xs text-slate-400"
             >
-              <Megaphone className="w-4 h-4 text-pink-400 shrink-0" />
-              <span className="font-medium text-xs">Send Announcement</span>
+              <Megaphone className="w-4 h-4 text-slate-500 shrink-0" />
+              <div className="flex flex-col">
+                <span className="font-medium text-xs">Send Announcement</span>
+                <span className="text-[10px] text-slate-500 font-normal">Service unavailable</span>
+              </div>
             </button>
           </div>
         </div>

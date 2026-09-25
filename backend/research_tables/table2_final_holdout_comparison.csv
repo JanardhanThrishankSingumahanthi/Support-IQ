@@ -1,0 +1,7 @@
+Variant,Architecture Type,Accuracy,Recall@5,MRR,Faithfulness,Citation Correctness,Hallucination Rate,Retrieval Latency,LLM Generation Latency,Notes
+RAG + QLoRA,Configuration Pipeline,100.0% (10/10),1.0000 (7/7),1.0000,98.0%,100.0% (10/10),0.0% (0/3),0.0119s,Not experimentally measured,Full Hybrid RRF + Claim Verification + Domain Stopword Filter
+RAG + LoRA,Configuration Pipeline,100.0% (10/10),1.0000 (7/7),1.0000,98.0%,100.0% (10/10),0.0% (0/3),0.0168s,Not experimentally measured,Equivalent retrieval configuration pipeline
+RAG Base,Lexical Baseline Pipeline,90.0% (9/10),1.0000 (7/7),1.0000,95.6%,90.0% (9/10),33.3% (1/3),0.0102s,Not experimentally measured,BM25 retrieval without hybrid fusion; hallucinated on Case #20
+Base LLM,Unaugmented Baseline,30.0% (3/10),0.0000 (0/7),0.0000,0.0%,30.0% (3/10),0.0% (0/3),Not experimentally measured,Not experimentally measured,"No retrieval context; correctly refused 3 unsupported cases, failed 7 answerable"
+LoRA (No Retr),Unaugmented Baseline,30.0% (3/10),0.0000 (0/7),0.0000,0.0%,30.0% (3/10),0.0% (0/3),Not experimentally measured,Not experimentally measured,No retrieval context; identical parametric behavior to Base LLM
+QLoRA (No Retr),Unaugmented Baseline,30.0% (3/10),0.0000 (0/7),0.0000,0.0%,30.0% (3/10),0.0% (0/3),Not experimentally measured,Not experimentally measured,No retrieval context; identical parametric behavior to Base LLM

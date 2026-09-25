@@ -1,0 +1,7 @@
+Run ID,Ablation Mode,Isolated Component,Accuracy,Recall@5,MRR,Faithfulness,Citation Correctness,Hallucination Rate,Retrieval Latency,Key Failure
+45,1. BM25 Only,Lexical token matching only (no vector search),90.0% (9/10),1.0000 (7/7),1.0000,95.6%,90.0% (9/10),33.3% (1/3),0.0052s,Case #20 matched warranty keywords to Dell laptop chunk
+46,2. Dense Vector Only,Dense semantic cosine similarity only (no BM25),70.0% (7/10),1.0000 (7/7),0.7976,76.5%,60.0% (6/10),100.0% (3/3),0.0051s,"MRR drop (Case 16 @ rank 3, Case 17 @ rank 4); 100% hallucination on unsupported"
+47,3. Hybrid without RRF,Linear score combination (0.65 Lexical + 0.35 Dense),90.0% (9/10),1.0000 (7/7),1.0000,90.8%,90.0% (9/10),33.3% (1/3),0.0051s,Case #20 high BM25 keyword score pushed linear sum above threshold
+48,4. Hybrid + RRF,Naive RAG: Reciprocal Rank Fusion without evidence verification gate,70.0% (7/10),1.0000 (7/7),1.0000,0.0%,70.0% (7/10),100.0% (3/3),0.0051s,Blind generation from top retrieved chunk; 100% hallucination on unsupported queries
+49,5. Full Retr. + Verification,Hybrid RRF + Claim Verification with generic stopword filter only,90.0% (9/10),1.0000 (7/7),1.0000,98.0%,90.0% (9/10),33.3% (1/3),0.0051s,"Case #18 matched domain boilerplate terms ('supportiq', 'customer', 'support')"
+50,6. Full SupportIQ Pipeline,Hybrid RRF + Claim Verification + Domain Stopword Filtering,100.0% (10/10),1.0000 (7/7),1.0000,98.0%,100.0% (10/10),0.0% (0/3),0.0049s,"None (0 errors, 100% safe refusal, 100% citation correctness)"

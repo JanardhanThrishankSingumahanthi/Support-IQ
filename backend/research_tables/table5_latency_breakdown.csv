@@ -1,0 +1,13 @@
+Experiment Source,Variant / Mode,Mean Latency,Min Latency,Max Latency,LLM Generation Latency,Pipeline Stage
+Exp 3 (Final Holdout),RAG + QLoRA (Config Pipeline),0.0119s,0.0077s,0.0178s,Not experimentally measured,BM25 + Vector + RRF + Claim Verification
+Exp 3 (Final Holdout),RAG + LoRA (Config Pipeline),0.0168s,0.0110s,0.0274s,Not experimentally measured,BM25 + Vector + RRF + Claim Verification
+Exp 3 (Final Holdout),RAG Base (Lexical Baseline),0.0102s,0.0083s,0.0156s,Not experimentally measured,BM25 + Claim Verification
+Exp 3 (Final Holdout),Base LLM (Unaugmented Baseline),Not experimentally measured,Not experimentally measured,Not experimentally measured,Not experimentally measured,No retrieval executed (Direct refusal)
+Exp 3 (Final Holdout),LoRA (Unaugmented Baseline),Not experimentally measured,Not experimentally measured,Not experimentally measured,Not experimentally measured,No retrieval executed (Direct refusal)
+Exp 3 (Final Holdout),QLoRA (Unaugmented Baseline),Not experimentally measured,Not experimentally measured,Not experimentally measured,Not experimentally measured,No retrieval executed (Direct refusal)
+Exp 4 (Ablation Study),BM25 Only,0.0052s,0.0046s,0.0079s,Not experimentally measured,Ablated sub-pipeline execution
+Exp 4 (Ablation Study),Dense Vector Only,0.0051s,0.0047s,0.0057s,Not experimentally measured,Ablated sub-pipeline execution
+Exp 4 (Ablation Study),Hybrid without RRF,0.0051s,0.0046s,0.0057s,Not experimentally measured,Ablated sub-pipeline execution
+Exp 4 (Ablation Study),Hybrid + RRF,0.0052s,0.0049s,0.0054s,Not experimentally measured,Ablated sub-pipeline execution
+Exp 4 (Ablation Study),Full Retrieval + Verification,0.0051s,0.0047s,0.0054s,Not experimentally measured,Ablated sub-pipeline execution
+Exp 4 (Ablation Study),Full SupportIQ Pipeline,0.0049s,0.0044s,0.0054s,Not experimentally measured,Ablated sub-pipeline execution

@@ -38,9 +38,12 @@ export type ChatMessage = {
   content: string
   created_at: string
   metadata_json?: {
-    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying' | 'error'
+    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying' | 'error' | 'model_unavailable'
     model?: string
+    model_variant?: string
     latency_ms?: number
+    generation_latency_ms?: number
+    peak_vram_gb?: number | null
     citations?: CitationItem[]
     reliability?: ReliabilityInfo
     grounding_status?: string
@@ -48,6 +51,7 @@ export type ChatMessage = {
     unsupported_claim_count?: number
     escalation_available?: boolean
     pipeline_stages?: Array<{ name: string; status: string; latency_ms?: number }>
+    attachment?: { id?: number; filename?: string; size?: number }
   } | null
 }
 
