@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DonutGauge } from '../components/charts/Charts';
 import {
   Shield, Lock, Users, Clock, Key,
   CheckCircle2, Download,
@@ -173,13 +172,13 @@ export const Security: React.FC = () => {
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-slate-400">Data Encrypted</span>
+            <span className="text-xs font-medium text-slate-400">Data Storage</span>
             <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
               <Database className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-purple-300">100%</div>
-          <div className="text-[11px] text-slate-400 mt-1">In transit & at rest</div>
+          <div className="text-lg font-bold text-purple-300">Standard File</div>
+          <div className="text-[11px] text-slate-400 mt-1">SQLite & OS File System</div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800/80">
@@ -374,13 +373,13 @@ export const Security: React.FC = () => {
                 <Database className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-200">Encryption at Rest</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 font-medium">
-                      ✔ Enabled
+                    <span className="font-medium text-slate-200">Storage at Rest</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-medium border border-slate-700">
+                      Standard Storage
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">
-                    All documents, embeddings, and user data are encrypted using AES-256 with key rotation.
+                    Documents, embeddings, and chat messages are stored on local filesystem and SQLite. Database-level AES-256 disk encryption is not configured in this release.
                   </div>
                 </div>
               </div>
@@ -389,13 +388,13 @@ export const Security: React.FC = () => {
                 <Lock className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-200">Encryption in Transit</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 font-medium">
-                      ✔ Enabled
+                    <span className="font-medium text-slate-200">Transport Layer Security</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 font-medium border border-amber-500/30">
+                      HTTP (Localhost)
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-400 mt-1">
-                    All client-server communications use TLS 1.3 with strict HSTS preloading.
+                    Development instance is running over HTTP (port 8000). TLS 1.3 / HSTS termination is not active on local host.
                   </div>
                 </div>
               </div>
@@ -403,7 +402,7 @@ export const Security: React.FC = () => {
           </div>
         </div>
 
-        {/* Threat Monitoring Donut Gauge */}
+        {/* Threat Monitoring */}
         <div className="p-5 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -412,49 +411,24 @@ export const Security: React.FC = () => {
             </div>
             <p className="text-xs text-slate-400 mb-2">Automated intrusion prevention & anomalous heuristics</p>
 
-            <div className="flex justify-center my-2">
-              <DonutGauge 
-                value={0} 
-                max={100} 
-                size={130} 
-                strokeWidth={12} 
-                color="#10b981" 
-                label="Active Threats" 
-              />
+            <div className="space-y-2 text-xs py-3">
+              <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-400">
+                Network intrusion detection (IDS/IPS) and perimeter threat heuristics are not configured in this release.
+              </div>
+              <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-emerald-300">
+                Active security safeguards: Stateless JWT token expiration (60m) and Bcrypt salt hashing enforced at API gateway.
+              </div>
             </div>
           </div>
 
           <div className="space-y-1.5 text-xs pt-3 border-t border-slate-800/60">
-            <div className="flex items-center justify-between text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span>Safe</span>
-              </div>
-              <span className="font-medium text-slate-200">99.8%</span>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Perimeter Firewall:</span>
+              <span className="font-medium text-slate-300">Managed by OS / Host</span>
             </div>
-
-            <div className="flex items-center justify-between text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-amber-400" />
-                <span>Suspicious</span>
-              </div>
-              <span className="font-medium text-slate-200">0.1%</span>
-            </div>
-
-            <div className="flex items-center justify-between text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>Critical</span>
-              </div>
-              <span className="font-medium text-slate-200">0.0%</span>
-            </div>
-
-            <div className="flex items-center justify-between text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-cyan-400" />
-                <span>Blocked</span>
-              </div>
-              <span className="font-medium text-slate-200">0.1%</span>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Threat Telemetry:</span>
+              <span className="font-medium text-amber-400/90">Not measured</span>
             </div>
           </div>
         </div>
@@ -472,10 +446,10 @@ export const Security: React.FC = () => {
               <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/40">
                 <div className="flex items-center gap-2">
                   <Globe className="w-4 h-4 text-cyan-400" />
-                  <span className="text-slate-200">GDPR Compliant</span>
+                  <span className="text-slate-200">GDPR Compliance</span>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 font-medium">
-                  ✔ Compliant
+                <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 font-medium">
+                  Not assessed in this release
                 </span>
               </div>
 
@@ -549,8 +523,8 @@ export const Security: React.FC = () => {
                     <tr key={idx} className="hover:bg-slate-800/30">
                       <td className="py-2.5 font-mono text-[11px] text-slate-200">{row.email}</td>
                       <td className="py-2.5 text-slate-400 text-[11px]">{row.role?.name || row.role || 'Viewer'}</td>
-                      <td className="py-2.5 font-mono text-slate-400 text-[11px]">127.0.0.1</td>
-                      <td className="py-2.5 text-slate-400">Localhost</td>
+                      <td className="py-2.5 font-mono text-slate-500 text-[11px]">Not recorded</td>
+                      <td className="py-2.5 text-slate-500 text-[11px]">Not available</td>
                       <td className="py-2.5">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                           row.is_active !== false 

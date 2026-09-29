@@ -4,7 +4,6 @@ env/
 __pycache__/
 *.py[cod]
 node_modules/
-dist/
 build/
 *.log
 .env
@@ -16,8 +15,12 @@ Thumbs.db
 *.sqlite3
 *.db
 
+# Allow deployment assets and verified database
+!backend/supportiq.db
+!backend/artifacts/adapters/
+!frontend/dist/**
+
 # Local Node.js installer archive
 node-v*.zip
 frontend/node-v*.zip
 .tools/
-

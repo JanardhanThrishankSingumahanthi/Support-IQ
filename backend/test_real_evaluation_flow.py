@@ -10,7 +10,7 @@ def run_test():
     print("==================================================")
 
     # 1. Login
-    login_res = httpx.post(f"{BASE}/auth/login", json={"email": "janardhan@supportiq.com", "password": "Password123!"})
+    login_res = httpx.post(f"{BASE}/auth/login", json={"email": "janardhan@supportiq.com", "password": "SupportIQ2026!"})
     assert login_res.status_code == 200, f"Login failed: {login_res.text}"
     token = login_res.json()["token"]
     headers = {"Authorization": f"Bearer {token}"}

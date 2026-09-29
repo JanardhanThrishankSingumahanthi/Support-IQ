@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { SupportIQIcon } from '../brand/Logo'
 
 // 1. Loading Screen
@@ -133,6 +132,89 @@ export function VerifyingState({ confidence = 87 }: { confidence?: number }) {
       <div className="mt-3 h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
         <div className="h-full bg-gradient-to-r from-teal-400 to-cyan-400 transition-all duration-500" style={{ width: `${confidence}%` }} />
       </div>
+    </div>
+  )
+}
+
+// 6. Assistant Pipeline Progress Component (Inline Chat State)
+export function AssistantPipelineProgress({
+  stage,
+  query,
+}: {
+  stage: 'retrieving' | 'generating' | 'verifying'
+  query?: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-[#091120] p-4 text-xs shadow-md space-y-3 max-w-lg">
+      {stage === 'retrieving' && (
+        <>
+          <div className="flex items-center gap-2.5 text-cyan-400 font-semibold">
+            <span className="text-base animate-pulse">🔍</span>
+            <span>Retrieving relevant information...</span>
+          </div>
+          {query && <p className="text-[11px] text-slate-400 italic truncate">"{query}"</p>}
+          <div className="space-y-1.5 pt-1 text-[11px] text-slate-300">
+            <div className="flex items-center gap-2 text-emerald-400">
+              <span>✓</span>
+              <span>Searching knowledge base</span>
+            </div>
+            <div className="flex items-center gap-2 text-cyan-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Finding relevant documents</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-500">
+              <span>◌</span>
+              <span>Ranking evidence</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {stage === 'generating' && (
+        <>
+          <div className="flex items-center gap-2.5 text-sky-400 font-semibold">
+            <span className="text-base animate-pulse">✨</span>
+            <span>Generating answer...</span>
+          </div>
+          <div className="space-y-1.5 pt-1 text-[11px] text-slate-300">
+            <div className="flex items-center gap-2 text-emerald-400">
+              <span>✓</span>
+              <span>Searching knowledge base</span>
+            </div>
+            <div className="flex items-center gap-2 text-emerald-400">
+              <span>✓</span>
+              <span>Evidence ranked & selected</span>
+            </div>
+            <div className="flex items-center gap-2 text-sky-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+              <span>Crafting response</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {stage === 'verifying' && (
+        <>
+          <div className="flex items-center gap-2.5 text-teal-400 font-semibold">
+            <span className="text-base animate-pulse">🛡</span>
+            <span>Verifying answer...</span>
+          </div>
+          <div className="space-y-1.5 pt-1 text-[11px] text-slate-300">
+            <div className="flex items-center gap-2 text-emerald-400">
+              <span>✓</span>
+              <span>Checking supporting evidence</span>
+            </div>
+            <div className="flex items-center gap-2 text-teal-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-pulse" />
+              <span>Validating claims</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>◌</span>
+              <span>Calculating reliability</span>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -562,129 +644,6 @@ export function MaintenanceScreen() {
         Estimated downtime: 30 minutes
       </div>
       <p className="mt-8 text-xs text-slate-500">Thank you for your patience!</p>
-    </div>
-  )
-}
-
-// 22 UI States Interactive Showcase Matrix Modal (Reference Image 12)
-export function UIStateMatrixModal({ onClose }: { onClose: () => void }) {
-  const [selectedState, setSelectedState] = useState<number>(1)
-
-  const statesList = [
-    { id: 1, title: '1. Loading Screen', desc: 'Initial application boot & authentication handshake' },
-    { id: 2, title: '2. Skeleton Loading', desc: 'Ghost placeholders during asynchronous data hydration' },
-    { id: 3, title: '3. AI Retrieving State', desc: 'Vector similarity search & top-k chunk retrieval' },
-    { id: 4, title: '4. AI Generating Response', desc: 'Token streaming with stop generation capability' },
-    { id: 5, title: '5. Evidence Verification', desc: 'Claim matching & confidence score calculation' },
-    { id: 6, title: '6. Grounded Response', desc: 'Final synthesized answer with interactive citations' },
-    { id: 7, title: '7. Low Confidence Warning', desc: 'Confidence below threshold with human review prompt' },
-    { id: 8, title: '8. Human Escalation Banner', desc: 'Ticket creation & routing to customer support' },
-    { id: 9, title: '9. No Evidence Fallback', desc: 'Graceful fallback when knowledge base lacks context' },
-    { id: 10, title: '10. File Uploading', desc: 'Document ingestion with progress indicator' },
-    { id: 11, title: '11. Upload Success Toast', desc: 'File parsed and queued for indexing' },
-    { id: 12, title: '12. Upload Error', desc: 'Unsupported format or file size limit exceeded' },
-    { id: 13, title: '13. Chunk Processing', desc: 'Chunking, embedding, and vector DB insertion' },
-    { id: 14, title: '14. Search Results Found', desc: 'Query matches with relevance scores and highlights' },
-    { id: 15, title: '15. Search No Results', desc: 'Empty state with suggested search terms' },
-    { id: 16, title: '16. Filter Applied Tags', desc: 'Active facet chips with individual clear actions' },
-    { id: 17, title: '17. Form Validation Error', desc: 'Field-level inline warnings and guidance' },
-    { id: 18, title: '18. Save Changes Confirmation', desc: 'Success toast for modified system settings' },
-    { id: 19, title: '19. Export Download Toast', desc: 'Report generation and file download feedback' },
-    { id: 20, title: '20. Delete Warning Dialog', desc: 'Destructive action confirmation modal' },
-    { id: 21, title: '21. Offline System Down', desc: 'Network failure or server unreachable state' },
-    { id: 22, title: '22. Scheduled Maintenance', desc: 'Planned downtime announcement screen' },
-  ]
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
-      <div className="flex h-[85vh] w-full max-w-6xl flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
-        {/* Modal Top Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 bg-[#070d18] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <SupportIQIcon className="h-6 w-6" />
-            <div>
-              <h2 className="text-base font-bold text-white">SupportIQ — 22 UI States Matrix</h2>
-              <p className="text-xs text-slate-400">Approved Reference Image 12 Interactive Verification Gallery</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Split View: Left List, Right Interactive Preview */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left States Index */}
-          <div className="w-80 border-r border-slate-800 bg-slate-950/60 overflow-y-auto p-3 space-y-1.5">
-            {statesList.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSelectedState(item.id)}
-                className={`w-full rounded-xl p-3 text-left transition-all ${
-                  selectedState === item.id
-                    ? 'bg-cyan-500/15 border border-cyan-500/40 text-cyan-300'
-                    : 'bg-slate-900/40 border border-transparent text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <div className="text-xs font-semibold">{item.title}</div>
-                <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{item.desc}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Right Preview Pane */}
-          <div className="flex-1 overflow-y-auto p-8 bg-[#070d18] flex items-center justify-center">
-            <div className="w-full max-w-2xl">
-              {selectedState === 1 && <LoadingScreen />}
-              {selectedState === 2 && <SkeletonLoading rows={4} />}
-              {selectedState === 3 && <RetrievingState query="What is the refund policy for annual enterprise plans?" />}
-              {selectedState === 4 && <GeneratingState />}
-              {selectedState === 5 && <VerifyingState confidence={94} />}
-              {selectedState === 6 && (
-                <SuccessState
-                  title="Grounded Response (Verified)"
-                  message="Dell laptops typically come with a 1-year limited hardware warranty covering manufacturing defects. Evidence: Dell_Warranty_Guide.pdf (Page 4, 94% match)."
-                />
-              )}
-              {selectedState === 7 && <LowConfidenceState confidencePercent={48} />}
-              {selectedState === 8 && <HumanEscalationState ticketId="SIQ-1042" />}
-              {selectedState === 9 && <NoEvidenceState />}
-              {selectedState === 10 && <UnsupportedState />}
-              {selectedState === 11 && <Toast type="success" message="File Return_Policy.pdf uploaded and queued for vector indexing." onClose={() => {}} />}
-              {selectedState === 12 && <ErrorState title="Upload Error" message="File size exceeds 10MB limit. Please compress or split the document." />}
-              {selectedState === 13 && <RetrievingState query="Chunking document into 512-token segments and generating embeddings..." />}
-              {selectedState === 14 && (
-                <SuccessState
-                  title="42 Search Results Found"
-                  message="Matches identified across billing, return policy, and customer warranty documents."
-                />
-              )}
-              {selectedState === 15 && <NoEvidenceState onTryDifferent={() => {}} />}
-              {selectedState === 16 && (
-                <Toast type="info" message="Active Facets: Category: Billing · Status: Published · Type: PDF" onClose={() => {}} />
-              )}
-              {selectedState === 17 && <ErrorState title="Validation Error" message="API Secret Key must be at least 32 characters." />}
-              {selectedState === 18 && <Toast type="success" message="System configurations saved successfully." onClose={() => {}} />}
-              {selectedState === 19 && <Toast type="info" message="Report SupportIQ_August_Analytics.pdf is downloading..." onClose={() => {}} />}
-              {selectedState === 20 && (
-                <DeleteModal
-                  title="Delete this document?"
-                  itemName="Return_Policy_2025_Draft.docx"
-                  onCancel={() => {}}
-                  onConfirm={() => alert('Document deleted')}
-                />
-              )}
-              {selectedState === 21 && <SystemDownState onHome={onClose} />}
-              {selectedState === 22 && <MaintenanceScreen />}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

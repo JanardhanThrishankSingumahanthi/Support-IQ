@@ -26,9 +26,50 @@ api_router.include_router(support_tickets_router)
 api_router.include_router(users_router)
 
 
+from fastapi import Depends
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.core.config import get_settings
+
+
 @api_router.get("/health")
-def v1_health() -> dict:
-    return {"status": "ok", "service": "SupportIQ", "environment": "development", "debug": True}
+def v1_health(db: Session = Depends(get_db)) -> dict:
+    # 1. Database check
+    db_status = "ok"
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+
+    # 2. Model runtime check
+    try:
+        from app.services.model_runtime import get_model_runtime
+        runtime = get_model_runtime()
+        device = runtime._device
+        cuda_available = runtime._is_cuda_available()
+        models = runtime.get_models_metadata()
+        active_models = [m["id"] for m in models if m.get("available")]
+        model_status = "ready" if active_models else "unavailable"
+    except Exception as e:
+        device = "unknown"
+        cuda_available = False
+        active_models = []
+        model_status = f"unavailable: {str(e)}"
+
+    overall_status = "ok" if db_status == "ok" else "degraded"
+
+    return {
+        "status": overall_status,
+        "service": "SupportIQ",
+        "environment": get_settings().environment,
+        "database": db_status,
+        "device": device,
+        "cuda_available": cuda_available,
+        "model_status": model_status,
+        "available_models": active_models,
+    }
 
 
 __all__ = ["api_router"]

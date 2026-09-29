@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from app.core.config import get_settings
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.db.base import Base
 from app.db.models import (
     Document,
@@ -117,6 +117,11 @@ def seed_demo_data() -> None:
                 )
                 session.add(user)
                 session.flush()
+            else:
+                if not verify_password(password, user.password_hash):
+                    user.password_hash = hash_password(password)
+                    session.add(user)
+                    session.flush()
             seeded_users[email] = user
 
         # 2. Seed Knowledge Base Documents & Chunks if none exist
@@ -316,10 +321,10 @@ def seed_demo_data() -> None:
         if session.query(Experiment).count() == 0:
             admin_user = seeded_users["janardhan@supportiq.com"]
             exp = Experiment(
-                name="RAG + QLoRA (Customer Support v1)",
-                description="Comparative evaluation of Parameter-efficient Fine-tuning (QLoRA) combined with Retrieval-Augmented Generation.",
+                name="RAG + QLoRA (Customer Support v1) [LEGACY / REFERENCE — NOT EXPERIMENTALLY EXECUTED]",
+                description="Theoretical baseline configuration with 7B parameter specifications. Marked as LEGACY / REFERENCE — NOT EXPERIMENTALLY EXECUTED. Actual empirical research models use Qwen/Qwen2.5-0.5B-Instruct in Experiments #3, #7, and #12.",
                 dataset_name="Customer Support QA Dataset",
-                status="COMPLETED",
+                status="LEGACY_REFERENCE",
                 created_by_user_id=admin_user.id,
             )
             session.add(exp)

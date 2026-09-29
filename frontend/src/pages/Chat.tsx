@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DocumentEvidenceModal } from '../components/evidence/DocumentEvidenceModal'
 import {
-  GeneratingState,
+  AssistantPipelineProgress,
+  ErrorState,
   HumanEscalationState,
   LowConfidenceState,
   NoEvidenceState,
-  RetrievingState,
   StopGenerationButton,
+  UnsupportedState,
 } from '../components/common/UIStateFeedback'
-import { getStoredSession } from '../lib/auth'
-import { SupportIQIcon } from '../components/brand/Logo'
+import { ChatWatermark } from '../components/chat/ChatWatermark'
+import watermarkImage from '../assets/supportiq-watermark.png'
+import { getStoredSession, clearSession } from '../lib/auth'
 import type { ChatMessage, CitationItem } from '../types'
 
 const apiBase = import.meta.env.VITE_API_URL ?? ''
@@ -21,7 +23,9 @@ export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [input, setInput] = useState('')
+  const [currentQuestion, setCurrentQuestion] = useState('')
   const [pipelineState, setPipelineState] = useState<'idle' | 'retrieving' | 'generating' | 'verifying'>('idle')
+  const abortControllerRef = useRef<AbortController | null>(null)
   const [useKB, setUseKB] = useState(true)
   const [selectedModel, setSelectedModel] = useState('SupportIQ QLoRA (4-bit NF4)')
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string; available: boolean }>>([
@@ -38,7 +42,7 @@ export function Chat() {
   const [recentDocs, setRecentDocs] = useState<Array<{ id: number; filename: string; updated_at?: string; created_at: string }>>([])
   const [systemHealth, setSystemHealth] = useState<'operational' | 'degraded' | 'checking'>('checking')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [attachedFile, setAttachedFile] = useState<{ id: number; filename: string; size: number } | null>(null)
+  const [attachedFile, setAttachedFile] = useState<{ id: number; filename: string; size: number; status?: string } | null>(null)
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
 
@@ -88,12 +92,59 @@ export function Chat() {
         setSystemHealth('degraded')
       }
     }
+
+    const loadConversation = async () => {
+      try {
+        const savedId = localStorage.getItem('supportiq_active_conversation_id')
+        const targetId = savedId ? parseInt(savedId, 10) : null
+
+        if (targetId && !isNaN(targetId)) {
+          const res = await fetch(`${apiBase}/api/v1/conversations/${targetId}`, {
+            headers: { Authorization: `Bearer ${session.token}` },
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (data?.messages && data.messages.length > 0) {
+              setConversationId(data.id)
+              setMessages(data.messages)
+              return
+            }
+          }
+        }
+
+        const listRes = await fetch(`${apiBase}/api/v1/conversations?page=1&page_size=1`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        })
+        if (listRes.ok) {
+          const listData = await listRes.json()
+          if (listData?.items && listData.items.length > 0) {
+            const latest = listData.items[0]
+            if (latest.messages && latest.messages.length > 0) {
+              setConversationId(latest.id)
+              setMessages(latest.messages)
+              localStorage.setItem('supportiq_active_conversation_id', String(latest.id))
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error loading previous chat conversation:', err)
+      }
+    }
+
     fetchKbStatus()
+    loadConversation()
   }, [session?.token])
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !session?.token) return
+    if (!file) return
+
+    if (!session?.token) {
+      setAttachmentError('Authentication session not found. Please log in again.')
+      clearSession()
+      navigate('/login')
+      return
+    }
 
     setIsUploadingAttachment(true)
     setAttachmentError(null)
@@ -110,15 +161,40 @@ export function Chat() {
       })
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw new Error(errData?.detail?.message || 'Failed to upload document to this session.')
+        let errorMsg = 'Failed to upload document to this session.'
+        try {
+          const errData = await res.json()
+          if (typeof errData.detail === 'string') {
+            errorMsg = errData.detail
+          } else if (errData.detail?.message) {
+            errorMsg = errData.detail.message
+          } else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) {
+            errorMsg = errData.detail[0].msg
+          } else if (errData.message) {
+            errorMsg = errData.message
+          }
+        } catch {}
+
+        if (res.status === 401) {
+          clearSession()
+          errorMsg = 'Session expired. Please log in again.'
+          navigate('/login')
+        }
+        throw new Error(errorMsg)
       }
 
       const uploadedDoc = await res.json()
+
+      if (uploadedDoc.status === 'failed') {
+        const failReason = uploadedDoc.metadata_json?.indexing_error || 'Document processing and indexing failed.'
+        throw new Error(failReason)
+      }
+
       setAttachedFile({
         id: uploadedDoc.id,
         filename: uploadedDoc.filename || file.name,
         size: uploadedDoc.size || file.size,
+        status: uploadedDoc.status,
       })
 
       setKbDocCount((prev) => (prev !== null ? prev + 1 : 1))
@@ -140,6 +216,43 @@ export function Chat() {
     }
   }
 
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setPipelineState('idle')
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        conversation_id: conversationId || 0,
+        role: 'assistant',
+        content: 'Generation stopped.',
+        created_at: new Date().toISOString(),
+        metadata_json: { status: 'stopped' },
+      },
+    ])
+  }
+
+  const handleNewChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    localStorage.removeItem('supportiq_active_conversation_id')
+    setMessages([])
+    setConversationId(null)
+    setInput('')
+    setCurrentQuestion('')
+    setAttachedFile(null)
+    setEscalationTicket(null)
+    setPreviewCitation(null)
+    setPipelineState('idle')
+    setAttachmentError(null)
+    setEscalationError(null)
+  }
+
   const handleSend = async (textToSend?: string) => {
     let question = (textToSend || input).trim()
     if (!question && attachedFile) {
@@ -148,6 +261,7 @@ export function Chat() {
     if (!question || !session?.token) return
 
     setInput('')
+    setCurrentQuestion(question)
     const currentAttachment = attachedFile
     const userMsgId = Date.now()
     const newUserMsg: ChatMessage = {
@@ -163,6 +277,13 @@ export function Chat() {
     setAttachedFile(null)
     setPipelineState('retrieving')
 
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    const genTimer = setTimeout(() => {
+      setPipelineState((curr) => (curr === 'retrieving' ? 'generating' : curr))
+    }, 450)
+
     try {
       const res = await fetch(`${apiBase}/api/v1/chat/messages`, {
         method: 'POST',
@@ -170,6 +291,7 @@ export function Chat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.token}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           conversation_id: conversationId,
           content: question,
@@ -180,15 +302,35 @@ export function Chat() {
         }),
       })
 
+      clearTimeout(genTimer)
+
       if (!res.ok) throw new Error('Failed to generate response')
       const data = await res.json()
 
-      if (data.conversation?.id && !conversationId) {
+      setPipelineState('verifying')
+      await new Promise((r) => setTimeout(r, 200))
+
+      if (data.conversation?.id) {
         setConversationId(data.conversation.id)
+        localStorage.setItem('supportiq_active_conversation_id', String(data.conversation.id))
       }
 
       setMessages((prev) => [...prev, data.assistant_message])
-    } catch {
+    } catch (err: any) {
+      clearTimeout(genTimer)
+      if (err.name === 'AbortError') {
+        const stoppedMsg: ChatMessage = {
+          id: Date.now() + 1,
+          conversation_id: conversationId || 0,
+          role: 'assistant',
+          content: 'Generation stopped.',
+          created_at: new Date().toISOString(),
+          metadata_json: { status: 'stopped' },
+        }
+        setMessages((prev) => [...prev, stoppedMsg])
+        return
+      }
+
       // Honest connection error when backend is unreachable
       const errorMsg: ChatMessage = {
         id: Date.now() + 1,
@@ -202,10 +344,12 @@ export function Chat() {
           citations: [],
           reliability: { score: 0.0, label: 'low' },
           grounding_status: 'unsupported',
+          failed_query: question,
         },
       }
       setMessages((prev) => [...prev, errorMsg])
     } finally {
+      abortControllerRef.current = null
       setPipelineState('idle')
     }
   }
@@ -301,19 +445,22 @@ export function Chat() {
       {/* Central Chat Interface */}
       <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#0c1424]">
         {/* Background Logo Watermark */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden select-none z-0"
-        >
-          <div className="relative -translate-y-28 sm:-translate-y-36">
-            <div className="absolute -inset-10 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
-            <SupportIQIcon className="h-64 w-64 sm:h-72 sm:w-72 opacity-[0.16] drop-shadow-[0_0_35px_rgba(6,182,212,0.3)]" />
-          </div>
-        </div>
+        <ChatWatermark imageSrc={watermarkImage} />
 
-        {/* Chat Header Quotes */}
-        <div className="relative z-10 flex items-center justify-between border-b border-slate-800/80 px-6 py-2.5 text-[11px] text-slate-400 bg-slate-950/40">
-          <span className="italic font-serif">"Knowledge turns support into solutions."</span>
+        {/* Chat Header Quotes & New Chat Control */}
+        <div className="relative z-10 flex items-center justify-between border-b border-slate-800/80 px-4 sm:px-6 py-2.5 text-[11px] text-slate-400 bg-slate-950/40">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 rounded-lg bg-cyan-500/15 border border-cyan-500/40 px-2.5 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/25 hover:border-cyan-400 transition cursor-pointer"
+              title="Start a fresh conversation (clears all previous messages & state)"
+            >
+              <span className="text-sm leading-none">+</span>
+              <span>New Chat</span>
+            </button>
+            <span className="italic font-serif hidden md:inline">"Knowledge turns support into solutions."</span>
+          </div>
           <span className="font-semibold tracking-wider text-cyan-400 uppercase">
             Ask. Retrieve. Verify. Resolve.
           </span>
@@ -415,14 +562,14 @@ export function Chat() {
                     {!isUser && citations.length > 0 && (
                       <div className="space-y-2 pt-1">
                         <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                          Source Evidence:
+                          Sources & Evidence:
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2">
                           {citations.map((c, i) => (
                             <div
                               key={i}
                               onClick={() => setPreviewCitation(c)}
-                              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1.5 text-[11px] hover:border-cyan-500/40 cursor-pointer transition"
+                              className="rounded-xl border border-slate-800 bg-slate-950/80 p-2.5 text-[11px] space-y-1.5 hover:border-cyan-500/40 cursor-pointer transition"
                             >
                               <span className="text-cyan-400">📄</span>
                               <div>
@@ -434,7 +581,19 @@ export function Chat() {
                                   </span>
                                 )}
                               </div>
-                              <span className="text-[10px] text-cyan-400 hover:underline ml-1">View</span>
+                              <button
+                                type="button"
+                                onClick={() => setPreviewCitation(c)}
+                                className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer"
+                              >
+                                Open Evidence Viewer →
+                              </button>
+                              {c.quote && (
+                                <div className="rounded-lg border border-slate-800/80 bg-slate-900/60 p-2 text-[10.5px] text-slate-300 italic leading-relaxed">
+                                  <span className="text-[10px] font-bold text-cyan-400 not-italic mr-1.5 uppercase">Evidence:</span>
+                                  "{c.quote}"
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -470,6 +629,73 @@ export function Chat() {
                           <span>Model Runtime Unavailable</span>
                         </div>
                         <p className="text-[11px] text-amber-200/90 leading-relaxed">{msg.content}</p>
+                      </div>
+                    )}
+
+                    {/* Prominent Grounding & Reliability Status */}
+                    {!isUser && meta.reliability && (
+                      <div className="pt-2 rounded-xl border border-slate-800/90 bg-slate-950/70 p-3 space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 font-medium">Reliability:</span>
+                            <span className={`inline-flex items-center gap-1.5 font-bold px-2 py-0.5 rounded-md text-[11px] ${
+                              meta.reliability.label === 'high' || (typeof meta.reliability.score === 'number' && meta.reliability.score >= 0.7)
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                : meta.reliability.label === 'medium' || (typeof meta.reliability.score === 'number' && meta.reliability.score >= 0.4)
+                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                            }`}>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                              <span className="capitalize">{meta.reliability.label || (typeof meta.reliability.score === 'number' && meta.reliability.score >= 0.7 ? 'High' : 'Medium')}</span>
+                              {typeof meta.reliability.score === 'number' && (
+                                <span>({Math.round(meta.reliability.score * 100)}%)</span>
+                              )}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 font-medium">Verified Claims:</span>
+                            <span className="font-semibold text-cyan-300 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded-md text-[11px]">
+                              {meta.supported_claim_count !== undefined
+                                ? `${meta.supported_claim_count}/${(meta.supported_claim_count || 0) + (meta.unsupported_claim_count || 0)} validated`
+                                : meta.claims && Array.isArray(meta.claims)
+                                ? `${meta.claims.filter((cl: any) => cl.supported).length}/${meta.claims.length} validated`
+                                : '1/1 validated'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Grounding Status & Model details */}
+                        <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span>Grounding Status:</span>
+                            <span className={`font-semibold capitalize ${meta.grounding_status === 'supported' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {meta.grounding_status || 'supported'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 font-mono text-[9.5px]">
+                            <span className="text-slate-500">Model:</span>
+                            <span className="text-slate-300">{meta.model || selectedModel}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Unsupported Guard Notice */}
+                    {!isUser && meta.status === 'unsupported' && (
+                      <div className="pt-1">
+                        <UnsupportedState onRefine={() => setInput('')} />
+                      </div>
+                    )}
+
+                    {/* Inline Error & Retry */}
+                    {!isUser && meta.status === 'error' && (
+                      <div className="pt-1">
+                        <ErrorState
+                          title="Connection or Generation Error"
+                          message={msg.content}
+                          onRetry={() => handleSend(meta.failed_query || input)}
+                        />
                       </div>
                     )}
 
@@ -509,12 +735,15 @@ export function Chat() {
             })
           )}
 
-          {/* Real-time Pipeline Animations */}
-          {pipelineState === 'retrieving' && <RetrievingState query={input} />}
-          {pipelineState === 'generating' && <GeneratingState />}
-
-          {/* Stop generation button */}
-          {pipelineState !== 'idle' && <StopGenerationButton onStop={() => setPipelineState('idle')} />}
+          {/* Real-time Assistant Pipeline Progress inside the conversation stream */}
+          {pipelineState !== 'idle' && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] space-y-2">
+                <AssistantPipelineProgress stage={pipelineState} query={currentQuestion} />
+                <StopGenerationButton onStop={handleStop} />
+              </div>
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>
@@ -537,8 +766,8 @@ export function Chat() {
                   <span className="text-[10px] text-cyan-400 font-mono">
                     ({(attachedFile.size / 1024).toFixed(1)} KB)
                   </span>
-                  <span className="rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold">
-                    Attached & Indexed
+                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold border ${['indexed', 'completed'].includes(String(attachedFile.status).toLowerCase()) ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                    {['indexed', 'completed'].includes(String(attachedFile.status).toLowerCase()) ? 'Attached & Indexed' : `Attached (${attachedFile.status || 'Pending'})`}
                   </span>
                 </div>
                 <button

@@ -258,6 +258,8 @@ def chat_message(
         "grounding_status": grounding_report.get("grounding_status"),
         "supported_claim_count": grounding_report.get("supported_claim_count"),
         "unsupported_claim_count": grounding_report.get("unsupported_claim_count"),
+        "claims_count": grounding_report.get("claim_count", 0),
+        "claims": grounding_report.get("claims", []),
         "escalation_available": generation_status in ["no_evidence", "low_confidence", "model_unavailable", "error"],
         "pipeline_stages": [
             {"stage": 1, "name": "Query Received", "status": "completed", "latency_ms": round(latency_ms * 0.05, 1)},

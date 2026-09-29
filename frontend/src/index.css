@@ -46,3 +46,155 @@ button,
 input {
   font: inherit;
 }
+
+/* ========================================================
+   LIGHT THEME OVERRIDES (Triggered via html.light)
+   ======================================================== */
+html.light {
+  color-scheme: light;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.light body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+/* Base Layout, Main, Header, Sidebar */
+html.light .bg-\[\#070d18\],
+html.light .bg-\[\#0c1424\],
+html.light .bg-slate-950,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/80,
+html.light .bg-slate-950\/90 {
+  background-color: #ffffff !important;
+}
+
+html.light aside,
+html.light header {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light main {
+  background: #f8fafc !important;
+}
+
+/* Enterprise Cards & Containers */
+html.light .bg-slate-900,
+html.light .bg-slate-900\/60,
+html.light .bg-slate-900\/70,
+html.light .bg-slate-900\/80,
+html.light .bg-slate-900\/90 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+
+html.light .bg-slate-800,
+html.light .bg-slate-800\/20,
+html.light .bg-slate-800\/30,
+html.light .bg-slate-800\/40,
+html.light .bg-slate-800\/50,
+html.light .bg-slate-800\/60,
+html.light .bg-slate-800\/80 {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* High-Contrast Readable Typography */
+html.light .text-white,
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-300 {
+  color: #1e293b !important;
+}
+
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Borders & Separators */
+html.light .border-slate-800,
+html.light .border-slate-800\/40,
+html.light .border-slate-800\/60,
+html.light .border-slate-800\/80,
+html.light .border-slate-700,
+html.light .border-slate-700\/40,
+html.light .border-slate-700\/60,
+html.light .border-slate-700\/80,
+html.light .divide-slate-800,
+html.light .divide-slate-800\/60 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Form Controls (Inputs, Selects, Textareas) */
+html.light input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+html.light textarea,
+html.light select {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Modals & Dialog Overlays */
+html.light .fixed.inset-0.bg-black\/60,
+html.light .fixed.inset-0.bg-black\/70,
+html.light .fixed.inset-0.bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(4px);
+}
+
+/* Table Hover & Striping */
+html.light table tr:hover,
+html.light table tr.hover\:bg-slate-800\/30:hover,
+html.light table tr.hover\:bg-slate-800\/40:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Interactive Navigation Links */
+html.light .hover\:bg-slate-900:hover,
+html.light .hover\:bg-slate-800:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* Accent Badges High-Contrast */
+html.light .text-cyan-400,
+html.light .text-cyan-300 {
+  color: #0891b2 !important;
+}
+
+html.light .text-emerald-400,
+html.light .text-emerald-300 {
+  color: #059669 !important;
+}
+
+html.light .text-purple-400,
+html.light .text-purple-300 {
+  color: #7c3aed !important;
+}
+
+html.light .text-amber-400,
+html.light .text-amber-300 {
+  color: #d97706 !important;
+}
+
+html.light .text-blue-400,
+html.light .text-blue-300 {
+  color: #2563eb !important;
+}
+

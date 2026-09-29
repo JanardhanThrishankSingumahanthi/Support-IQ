@@ -38,7 +38,7 @@ export type ChatMessage = {
   content: string
   created_at: string
   metadata_json?: {
-    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying' | 'error' | 'model_unavailable'
+    status?: 'resolved' | 'low_confidence' | 'no_evidence' | 'unsupported' | 'generating' | 'retrieving' | 'verifying' | 'error' | 'model_unavailable' | 'stopped'
     model?: string
     model_variant?: string
     latency_ms?: number
@@ -47,6 +47,8 @@ export type ChatMessage = {
     citations?: CitationItem[]
     reliability?: ReliabilityInfo
     grounding_status?: string
+    claims?: any[]
+    failed_query?: string
     supported_claim_count?: number
     unsupported_claim_count?: number
     escalation_available?: boolean
@@ -74,6 +76,7 @@ export type DocumentRecord = {
   category: string
   version: number
   status: string
+  is_indexed?: boolean
   chunk_count: number
   uploaded_at: string
   updated_at: string

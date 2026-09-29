@@ -130,7 +130,7 @@ def test_expired_session_is_rejected():
     with SessionLocal() as session:
         db_session = session.query(Session).filter_by(token_hash=__import__("hashlib").sha256(token.encode()).hexdigest()).first()
         if db_session is not None:
-            db_session.expires_at = db_session.expires_at - timedelta(minutes=30)
+            db_session.expires_at = db_session.expires_at - timedelta(hours=24)
             session.commit()
 
     response = client.get(

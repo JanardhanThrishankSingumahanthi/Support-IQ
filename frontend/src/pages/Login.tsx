@@ -231,7 +231,10 @@ export function Login() {
               className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-400 to-cyan-500 font-semibold text-xs text-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:brightness-110 active:scale-[0.99] transition"
             >
               {loading ? (
-                <span>Signing in...</span>
+                <div className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                  <span>Signing in...</span>
+                </div>
               ) : (
                 <>
                   <span>Sign In</span>

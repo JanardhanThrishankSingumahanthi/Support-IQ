@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthGate } from './components/AuthGate';
 import { Layout } from './components/Layout';
+import { ToastProvider } from './components/common/ToastContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Direct implementations matching Reference Images 1–12
 import { Login } from './pages/Login';
@@ -12,6 +14,7 @@ import { ExperimentCenter } from './pages/ExperimentCenter';
 import { Analytics } from './pages/Analytics';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { Security } from './pages/Security';
+import { Settings } from './pages/Settings';
 import { SupportTickets } from './pages/SupportTickets';
 
 export function AppRoutes() {
@@ -144,7 +147,7 @@ export function AppRoutes() {
         element={
           <AuthGate>
             <Layout title="Settings">
-              <Security />
+              <Settings />
             </Layout>
           </AuthGate>
         }
@@ -171,7 +174,13 @@ export function AppRoutes() {
 }
 
 export function App() {
-  return <AppRoutes />;
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <AppRoutes />
+      </ToastProvider>
+    </ThemeProvider>
+  );
 }
 
 export default App;

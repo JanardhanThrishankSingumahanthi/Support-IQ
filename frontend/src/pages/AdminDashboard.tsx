@@ -408,36 +408,36 @@ export const AdminDashboard: React.FC = () => {
                 View Details <ArrowUpRight className="w-3 h-3" />
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-4">Real-time resource utilization</p>
+            <p className="text-xs text-slate-400 mb-4">Hardware detection & host telemetry</p>
 
-            <div className="grid grid-cols-2 gap-4 my-auto">
-              <div className="flex flex-col items-center">
-                <DonutGauge value={42} max={100} size={110} strokeWidth={10} color="#06b6d4" label="CPU Usage" />
-                <span className="text-xs text-slate-300 font-medium mt-1">42%</span>
-                <span className="text-[10px] text-slate-500">8 Cores Active</span>
+            <div className="grid grid-cols-2 gap-3.5 my-auto">
+              <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-800 flex flex-col justify-between">
+                <div className="text-[11px] font-medium text-slate-400">Host Processor</div>
+                <div className="text-sm font-bold text-cyan-300 mt-1">Multi-Core CPU</div>
+                <span className="text-[10px] text-slate-500 mt-1">Realtime % not measured</span>
               </div>
-              <div className="flex flex-col items-center">
-                <DonutGauge value={68} max={100} size={110} strokeWidth={10} color="#a855f7" label="RAM Usage" />
-                <span className="text-xs text-slate-300 font-medium mt-1">68%</span>
-                <span className="text-[10px] text-slate-500">21.8 / 32 GB</span>
+              <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-800 flex flex-col justify-between">
+                <div className="text-[11px] font-medium text-slate-400">Memory Allocation</div>
+                <div className="text-sm font-bold text-purple-300 mt-1">System Managed</div>
+                <span className="text-[10px] text-slate-500 mt-1">Telemetry not configured</span>
               </div>
-              <div className="flex flex-col items-center">
-                <DonutGauge value={54} max={100} size={110} strokeWidth={10} color="#10b981" label="Disk Space" />
-                <span className="text-xs text-slate-300 font-medium mt-1">54%</span>
-                <span className="text-[10px] text-slate-500">270 / 500 GB</span>
+              <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-800 flex flex-col justify-between">
+                <div className="text-[11px] font-medium text-slate-400">Knowledge Storage</div>
+                <div className="text-sm font-bold text-emerald-300 mt-1">{kbStats.storageUsed}</div>
+                <span className="text-[10px] text-slate-500 mt-1">{kbStats.totalDocuments} Docs · {kbStats.totalChunks} Chunks</span>
               </div>
-              <div className="flex flex-col items-center">
-                <DonutGauge value={76} max={100} size={110} strokeWidth={10} color="#f59e0b" label="GPU Load" />
-                <span className="text-xs text-slate-300 font-medium mt-1">76%</span>
-                <span className="text-[10px] text-slate-400 font-medium truncate max-w-[130px] text-center" title={gpuModel || 'Detecting GPU...'}>
-                  {gpuModel ? (gpuModel.length > 20 ? gpuModel.slice(0, 20) + '...' : gpuModel) : 'Detecting GPU...'}
-                </span>
+              <div className="p-3 rounded-lg bg-slate-800/40 border border-slate-800 flex flex-col justify-between">
+                <div className="text-[11px] font-medium text-slate-400">Hardware Accelerator</div>
+                <div className="text-xs font-bold text-amber-300 mt-1 truncate" title={gpuModel || 'CPU Provider'}>
+                  {gpuModel ? (gpuModel.length > 18 ? gpuModel.slice(0, 18) + '...' : gpuModel) : 'CPU Provider'}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1">Inference Execution Provider</span>
               </div>
             </div>
           </div>
           <div className="pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Cluster Status: <strong className="text-emerald-400 font-medium">Healthy</strong></span>
-            <span>Load Average: 1.42</span>
+            <span>Cluster Node: <strong className="text-emerald-400 font-medium">Single-Host</strong></span>
+            <span>Load Telemetry: <strong className="text-slate-500">Not configured</strong></span>
           </div>
         </div>
 
@@ -821,8 +821,8 @@ export const AdminDashboard: React.FC = () => {
             </button>
 
             <button 
-              onClick={() => navigate('/security')}
-              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200"
+              onClick={() => navigate('/settings')}
+              className="p-3 rounded-lg bg-slate-800 hover:bg-slate-750 border border-slate-700 text-left transition-colors flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer"
             >
               <Settings className="w-4 h-4 text-indigo-400 shrink-0" />
               <span className="font-medium text-xs">System Settings</span>

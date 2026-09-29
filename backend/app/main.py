@@ -43,6 +43,7 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ],
+    allow_origin_regex=r"https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -111,3 +112,10 @@ async def serve_spa(full_path: str):
         return FileResponse(index_file)
 
     raise HTTPException(status_code=404, detail="Frontend build index.html not found. Please run 'npm run build'.")
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)

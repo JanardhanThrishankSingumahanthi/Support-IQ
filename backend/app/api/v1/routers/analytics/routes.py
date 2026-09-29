@@ -43,7 +43,8 @@ def get_analytics_overview(
         if meta.get("status") == "resolved" or meta.get("grounding_status") == "supported":
             ai_resolved_count += 1
 
-    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 1.8
+    # Convert milliseconds to seconds before returning
+    avg_latency = round((sum(latencies) / len(latencies)) / 1000.0, 2) if latencies else 1.8
     avg_accuracy = round((sum(reliabilities) / len(reliabilities)) * 100, 1) if reliabilities else 92.4
 
     # 2. Real Support Tickets breakdown

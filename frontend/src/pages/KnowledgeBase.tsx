@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { DonutGauge } from '../components/charts/Charts'
 import { DocumentEvidenceModal } from '../components/evidence/DocumentEvidenceModal'
-import { getStoredSession } from '../lib/auth'
+import { DeleteModal } from '../components/common/UIStateFeedback'
+import { useToast } from '../components/common/ToastContext'
+import { getStoredSession, clearSession } from '../lib/auth'
 import type { DocumentRecord, KnowledgeBaseStats } from '../types'
 
 const apiBase = import.meta.env.VITE_API_URL ?? ''
@@ -43,7 +46,9 @@ interface KnowledgeSettingsData {
 }
 
 export function KnowledgeBase() {
+  const navigate = useNavigate()
   const session = getStoredSession()
+  const { showToast } = useToast()
   const [stats, setStats] = useState<KnowledgeBaseStats>({
     total_documents: 0,
     indexed_documents: 0,
@@ -63,6 +68,10 @@ export function KnowledgeBase() {
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('All')
   const [uploading, setUploading] = useState(false)
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'uploaded' | 'extracting' | 'embedding' | 'indexing' | 'ready' | 'failed'>('idle')
+  const [uploadFileName, setUploadFileName] = useState<string>('')
+  const [docToDelete, setDocToDelete] = useState<DocumentRecord | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
@@ -188,9 +197,18 @@ export function KnowledgeBase() {
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !session?.token) return
+    if (!file) return
+
+    if (!session?.token) {
+      showToast('Authentication required to upload documents.', 'error')
+      clearSession()
+      navigate('/login')
+      return
+    }
 
     setUploading(true)
+    setUploadPhase('uploading')
+    setUploadFileName(file.name)
     const formData = new FormData()
     formData.append('file', file)
     formData.append('category', activeTab === 'All' ? 'Policy' : activeTab)
@@ -201,12 +219,81 @@ export function KnowledgeBase() {
         headers: { Authorization: `Bearer ${session.token}` },
         body: formData,
       })
-      if (res.ok) {
-        await fetchStatsAndDocs()
+      if (!res.ok) {
+        let errMsg = `Failed to upload ${file.name}`
+        try {
+          const errData = await res.json()
+          if (typeof errData.detail === 'string') errMsg = errData.detail
+          else if (errData.detail?.message) errMsg = errData.detail.message
+          else if (Array.isArray(errData.detail) && errData.detail[0]?.msg) errMsg = errData.detail[0].msg
+          else if (errData.message) errMsg = errData.message
+        } catch {}
+
+        if (res.status === 401) {
+          clearSession()
+          showToast('Session expired. Please log in again.', 'error')
+          navigate('/login')
+          return
+        }
+
+        setUploadPhase('failed')
+        showToast(errMsg, 'error')
+        return
       }
+
+      const doc = await res.json()
+      const isCompleted = ['indexed', 'completed'].includes(String(doc.status).toLowerCase())
+      const isFailed = String(doc.status).toLowerCase() === 'failed'
+      if (isCompleted) {
+        setUploadPhase('ready')
+        showToast(`Document "${file.name}" uploaded and indexed successfully (${doc.chunk_count || 0} chunks). Ready for Chat.`, 'success')
+      } else if (isFailed) {
+        setUploadPhase('failed')
+        showToast(`Document "${file.name}" failed: ${doc.metadata_json?.indexing_error || 'Indexing error'}`, 'error')
+      } else {
+        setUploadPhase('indexing')
+        showToast(`Document "${file.name}" uploaded (status: ${doc.status}).`, 'info')
+      }
+
+      await fetchStatsAndDocs()
+    } catch (err: any) {
+      setUploadPhase('failed')
+      showToast(`Network error uploading ${file.name}: ${err.message || 'Server unavailable'}`, 'error')
     } finally {
-      setUploading(false)
+      setTimeout(() => {
+        setUploading(false)
+        setUploadPhase('idle')
+        setUploadFileName('')
+      }, 2500)
       e.target.value = ''
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!docToDelete || !session?.token || isDeleting) return
+    setIsDeleting(true)
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/documents/${docToDelete.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+
+      if (!res.ok && res.status !== 204) {
+        throw new Error('Failed to delete document from database.')
+      }
+
+      showToast(`Document "${docToDelete.filename || docToDelete.title}" deleted successfully.`, 'success')
+      setDocuments((prev) => prev.filter((d) => d.id !== docToDelete.id))
+      if (selectedDoc?.id === docToDelete.id) {
+        setSelectedDoc(null)
+      }
+      setDocToDelete(null)
+      await fetchStatsAndDocs()
+    } catch (err: any) {
+      showToast(err.message || 'Error deleting document.', 'error')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -427,34 +514,65 @@ export function KnowledgeBase() {
         <div className="rounded-2xl border border-slate-800 bg-[#0c1424] p-5 shadow-lg space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold text-white">Document Processing</h4>
-            <span className="text-[11px] text-cyan-400">View all</span>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+              uploadPhase === 'uploading' || uploadPhase === 'extracting' || uploadPhase === 'embedding' || uploadPhase === 'indexing'
+                ? 'bg-cyan-500/20 text-cyan-300 animate-pulse border border-cyan-500/30'
+                : uploadPhase === 'ready'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : uploadPhase === 'failed'
+                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                : 'bg-slate-800 text-slate-400'
+            }`}>
+              {uploadPhase === 'uploading' ? 'Uploading...'
+                : uploadPhase === 'uploaded' ? 'Uploaded'
+                : uploadPhase === 'extracting' ? 'Extracting...'
+                : uploadPhase === 'embedding' ? 'Embedding...'
+                : uploadPhase === 'indexing' ? 'Indexing...'
+                : uploadPhase === 'ready' ? 'Ready'
+                : uploadPhase === 'failed' ? 'Failed'
+                : 'Pipeline Idle'}
+            </span>
           </div>
 
           <div className="space-y-2 text-xs">
             {[
-              { label: 'Uploading', done: true },
-              { label: 'Extracting text', done: true },
-              { label: 'Chunking', done: true },
-              { label: 'Generating embeddings', done: true },
-              { label: 'Indexing to vector database', done: false, active: true },
+              { label: 'Uploading file', isDone: uploadPhase !== 'idle' && uploadPhase !== 'uploading', isActive: uploadPhase === 'uploading' },
+              { label: 'Extracting text', isDone: uploadPhase === 'embedding' || uploadPhase === 'indexing' || uploadPhase === 'ready' || (uploadPhase === 'idle' && documents.length > 0), isActive: uploadPhase === 'extracting' },
+              { label: 'Chunking document', isDone: uploadPhase === 'embedding' || uploadPhase === 'indexing' || uploadPhase === 'ready' || (uploadPhase === 'idle' && documents.length > 0), isActive: uploadPhase === 'extracting' },
+              { label: 'Generating embeddings', isDone: uploadPhase === 'indexing' || uploadPhase === 'ready' || (uploadPhase === 'idle' && documents.length > 0), isActive: uploadPhase === 'embedding' },
+              { label: 'Indexing to vector database', isDone: uploadPhase === 'ready' || (uploadPhase === 'idle' && documents.length > 0), isActive: uploadPhase === 'indexing' },
             ].map((step) => (
               <div key={step.label} className="flex items-center justify-between text-slate-300">
                 <span className="text-[11px]">{step.label}</span>
-                {step.done ? (
+                {step.isDone ? (
                   <span className="text-emerald-400 font-bold">✓</span>
+                ) : step.isActive ? (
+                  <span className="text-cyan-400 font-bold animate-pulse text-[10px]">Processing...</span>
                 ) : (
-                  <span className="text-cyan-400 font-bold animate-pulse">80%</span>
+                  <span className="text-slate-600">◌</span>
                 )}
               </div>
             ))}
           </div>
 
-          <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden mt-2">
-            <div className="h-full bg-cyan-400 transition-all duration-500 w-4/5" />
-          </div>
+          {uploadPhase !== 'idle' ? (
+            <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden mt-2">
+              <div className={`h-full transition-all duration-300 ${
+                uploadPhase === 'ready' ? 'w-full bg-emerald-400' : 'w-3/4 bg-cyan-400 animate-pulse'
+              }`} />
+            </div>
+          ) : (
+            <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden mt-2">
+              <div className="h-full bg-emerald-400/60 w-full" />
+            </div>
+          )}
 
-          <p className="text-[10px] text-slate-500 pt-1">
-            Processing... Return_Policy.pdf. This may take a few moments.
+          <p className="text-[10px] text-slate-400 pt-1 truncate">
+            {uploadPhase !== 'idle' && uploadFileName
+              ? `Processing: ${uploadFileName}`
+              : documents.length > 0
+              ? `Current active: ${documents[0].filename || documents[0].title}`
+              : 'Ready for document upload and indexing'}
           </p>
         </div>
       </div>
@@ -559,8 +677,18 @@ export function KnowledgeBase() {
                         {(doc.size / (1024 * 1024)).toFixed(1)} MB
                       </td>
                       <td className="p-3.5">
-                        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                          Indexed
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                          doc.status === 'COMPLETED' || doc.is_indexed
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                            : doc.status === 'EXTRACTING' || doc.status === 'CHUNKING'
+                            ? 'bg-sky-500/10 border-sky-500/30 text-sky-300 animate-pulse'
+                            : doc.status === 'EMBEDDING' || doc.status === 'INDEXING'
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 animate-pulse'
+                            : doc.status === 'FAILED'
+                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        }`}>
+                          {doc.status === 'COMPLETED' || doc.is_indexed ? 'Ready' : doc.status || 'Ready'}
                         </span>
                       </td>
                       <td className="p-3.5 text-slate-400">
@@ -599,11 +727,33 @@ export function KnowledgeBase() {
                               '⬇'
                             )}
                           </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDocToDelete(doc)
+                            }}
+                            className="hover:text-rose-400 p-1 transition"
+                            title="Delete document"
+                          >
+                            🗑
+                          </button>
                         </div>
                       </td>
                     </tr>
                   )
                 })}
+                {filteredDocs.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <span className="text-2xl">📄</span>
+                        <p className="text-sm font-semibold text-slate-300">No documents uploaded</p>
+                        <p className="text-xs text-slate-500">Upload a PDF, DOCX, TXT, or CSV document to build your knowledge base.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1025,6 +1175,16 @@ export function KnowledgeBase() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Delete Document Confirmation Modal */}
+      {docToDelete && (
+        <DeleteModal
+          title="Delete this document?"
+          itemName={docToDelete.filename || docToDelete.title}
+          onCancel={() => setDocToDelete(null)}
+          onConfirm={handleConfirmDelete}
+        />
       )}
     </div>
   )

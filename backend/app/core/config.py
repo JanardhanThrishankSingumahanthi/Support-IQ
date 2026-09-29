@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     database_url: str = f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}"
     secret_key: str = "change-me-in-production"
-    session_ttl_minutes: int = 30
+    session_ttl_minutes: int = 480
     dev_admin_email: str = "dev-admin@example.com"
     dev_admin_password: str = "change-me-in-dev"
 

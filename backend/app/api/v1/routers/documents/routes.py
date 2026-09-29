@@ -81,12 +81,35 @@ import zlib
 from app.db.models import DocumentChunk
 
 
-async def extract_text_bytes(file_name: str, payload: bytes) -> str:
+async def extract_text_bytes(file_name: str, payload: bytes) -> tuple[str, list[dict[str, Any]]]:
+    """Extract text from supported file types, returning (full_text, page_records)."""
     extension = Path(file_name).suffix.lower()
+
     if extension in {".txt", ".csv"}:
-        return payload.decode("utf-8", errors="replace")
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            text = payload.decode("latin1", errors="replace")
+        return text, [{"page": 1, "text": text}]
 
     if extension == ".docx":
+        # 1. Primary DOCX parser: python-docx
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(payload))
+            paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        paragraphs.append(row_text)
+            if paragraphs:
+                full_text = "\n\n".join(paragraphs)
+                return full_text, [{"page": 1, "text": full_text}]
+        except Exception:
+            pass
+
+        # 2. Fallback XML parsing
         try:
             with zipfile.ZipFile(io.BytesIO(payload)) as z:
                 if "word/document.xml" in z.namelist():
@@ -94,12 +117,29 @@ async def extract_text_bytes(file_name: str, payload: bytes) -> str:
                     texts = [node.text for node in tree.iter() if node.text]
                     extracted = " ".join(texts).strip()
                     if extracted:
-                        return extracted
+                        return extracted, [{"page": 1, "text": extracted}]
         except Exception:
             pass
-        return payload.decode("utf-8", errors="replace")
+        fallback_text = payload.decode("utf-8", errors="replace")
+        return fallback_text, [{"page": 1, "text": fallback_text}]
 
     if extension == ".pdf":
+        # 1. Primary PDF parser: pypdf (page-aware, handles compressed object streams)
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(payload))
+            page_records: list[dict[str, Any]] = []
+            for page_idx, page in enumerate(reader.pages, start=1):
+                page_text = (page.extract_text() or "").strip()
+                if page_text:
+                    page_records.append({"page": page_idx, "text": page_text})
+            if page_records:
+                full_text = "\n\n".join(f"[Page {p['page']}]\n{p['text']}" for p in page_records)
+                return full_text, page_records
+        except Exception:
+            pass
+
+        # 2. Secondary fallback: Stream decompression
         text_parts = []
         stream_pattern = re.compile(b"stream[\r\n]+(.*?)[\r\n]+endstream", re.DOTALL)
         for match in stream_pattern.finditer(payload):
@@ -124,17 +164,21 @@ async def extract_text_bytes(file_name: str, payload: bytes) -> str:
                             text_parts.append(decoded.strip())
 
         if text_parts:
-            return "\n\n".join(text_parts)
+            combined = "\n\n".join(text_parts)
+            return combined, [{"page": 1, "text": combined}]
 
-        # Fallback to readable ASCII fragments
-        ascii_strings = re.findall(rb"[A-Za-z0-9 ,.!?;:'\"()\n\r-]{5,}", payload)
-        if ascii_strings:
-            return " ".join([s.decode("latin1", errors="ignore") for s in ascii_strings[:300]])
+        return "", []
 
-    return payload.decode("utf-8", errors="replace")
+    if extension == ".docx":
+        return "", []
+
+    fallback = payload.decode("utf-8", errors="replace")
+    return fallback, [{"page": 1, "text": fallback}]
 
 
 async def run_document_pipeline(document: Document, payload: bytes, original_name: str, db: Session | None = None) -> Document:
+    from app.retrieval.service import _hash_vector, tokenize
+
     stored_dir = document_storage_root()
     safe_name = os.path.basename(original_name)
     stored_path = stored_dir / f"{document.id}-{uuid4().hex}-{safe_name}"
@@ -147,41 +191,63 @@ async def run_document_pipeline(document: Document, payload: bytes, original_nam
         "storage_path": str(stored_path),
         "size": len(payload),
     }
-    document.content = await extract_text_bytes(original_name, payload)
+
+    full_text, page_records = await extract_text_bytes(original_name, payload)
+    if not full_text.strip() and len(payload) > 0:
+        raise ValueError(f"No readable text could be extracted from '{safe_name}'. The file may be corrupt or image-only.")
+
+    document.content = full_text
     document.metadata_json["file_type"] = Path(original_name).suffix.lower().lstrip(".") or "text"
     document.metadata_json["category"] = document.metadata_json.get("category") or "General"
     document.metadata_json["version"] = int(document.metadata_json.get("version") or 1)
     document.status = "CHUNKING"
 
-    chunks = build_chunks(document.content or "")
-    if not chunks and document.content:
-        chunks = [document.content.strip()]
-    document.metadata_json["chunk_count"] = len(chunks)
+    # Build page-aware chunks
+    chunk_records: list[dict[str, Any]] = []
+    for p_info in page_records:
+        p_num = p_info.get("page", 1)
+        p_text = p_info.get("text", "").strip()
+        if not p_text:
+            continue
+        p_chunks = build_chunks(p_text)
+        if not p_chunks:
+            p_chunks = [p_text]
+        for c_text in p_chunks:
+            chunk_records.append({"page": p_num, "content": c_text})
 
-    # Persist DocumentChunk records if db session is provided
+    if not chunk_records and full_text.strip():
+        chunk_records = [{"page": 1, "content": full_text.strip()}]
+
+    document.metadata_json["chunk_count"] = len(chunk_records)
+    document.status = "EMBEDDING"
+
+    # Persist DocumentChunk records with pre-computed hash embeddings
     if db is not None:
         db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).delete()
-        for idx, chunk_text in enumerate(chunks, start=1):
+        for idx, item in enumerate(chunk_records, start=1):
+            c_text = item["content"]
+            vector = _hash_vector(tokenize(c_text))
             db.add(
                 DocumentChunk(
                     document_id=document.id,
                     version_id=None,
                     chunk_index=idx,
-                    content=chunk_text,
+                    content=c_text,
                     metadata_json={
-                        "page": max(1, (idx + 1) // 2),
+                        "page": item["page"],
                         "section": f"Section {idx}",
-                        "tokens": len(chunk_text.split()),
+                        "tokens": len(c_text.split()),
+                        "embedding": vector,
                     },
                 )
             )
 
-    document.status = "EMBEDDING"
     document.status = "INDEXING"
     document.status = "COMPLETED"
     document.metadata_json["indexed_at"] = datetime.now(timezone.utc).isoformat()
     document.metadata_json["error"] = None
     return document
+
 
 
 @router.get("", response_model=PaginatedResponse[dict])
@@ -318,8 +384,25 @@ async def upload_document(
             detail={"status": "file_too_large", "message": "Maximum supported file size is 10 MB."},
         )
 
+    safe_name = os.path.basename(file.filename or "")
+    doc_title = Path(safe_name).stem or safe_name
+    existing_doc = (
+        db.query(Document)
+        .filter(
+            Document.owner_id == current_user.id,
+            Document.title == doc_title,
+            Document.status == "COMPLETED",
+        )
+        .first()
+    )
+    if existing_doc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"status": "duplicate", "message": f"A document named '{safe_name}' already exists in your knowledge base."},
+        )
+
     document = Document(
-        title=Path(file.filename).stem or file.filename,
+        title=doc_title,
         content="",
         status="UPLOADING",
         owner_id=current_user.id,
@@ -359,9 +442,10 @@ async def upload_document(
         db.add(document)
         db.commit()
         db.refresh(document)
+        status_code = status.HTTP_400_BAD_REQUEST if isinstance(exc, ValueError) else status.HTTP_500_INTERNAL_SERVER_ERROR
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"status": "processing_failed", "message": "The document could not be processed.", "error": str(exc)},
+            status_code=status_code,
+            detail={"status": "processing_failed", "message": str(exc), "error": str(exc)},
         ) from exc
 
 

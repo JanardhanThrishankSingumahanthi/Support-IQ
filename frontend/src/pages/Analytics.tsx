@@ -189,7 +189,7 @@ export const Analytics: React.FC = () => {
               <div className="flex items-baseline justify-between">
                 <div className="text-2xl font-bold text-emerald-400">{data.resolved_by_ai}</div>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {data.total_queries > 0 ? Math.round((data.resolved_by_ai / data.total_queries) * 100) : 100}%
+                  {data.total_queries > 0 ? `${Math.round((data.resolved_by_ai / data.total_queries) * 100)}%` : '0%'}
                 </span>
               </div>
               <div className="text-[11px] text-emerald-400/80 mt-1">Grounding verified</div>

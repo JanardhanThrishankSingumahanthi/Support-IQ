@@ -7,7 +7,7 @@ BASE = "http://127.0.0.1:8000/api/v1"
 def get_auth_token():
     login_res = httpx.post(
         f"{BASE}/auth/login",
-        json={"email": "janardhan@supportiq.com", "password": "Password123!"}
+        json={"email": "janardhan@supportiq.com", "password": "SupportIQ2026!"}
     )
     if login_res.status_code != 200:
         raise RuntimeError(f"Login failed: {login_res.text}")

@@ -18,7 +18,7 @@ interface ExperimentItem {
   name: string
   modelType: string
   dataset: string
-  status: 'Completed' | 'Running' | 'Queued' | 'Failed'
+  status: 'Completed' | 'Running' | 'Queued' | 'Failed' | 'Legacy Reference'
   startedOn: string
   duration: string
 }
@@ -32,7 +32,7 @@ export const ExperimentCenter: React.FC = () => {
   // New experiment form state
   const [expName, setExpName] = useState('RAG + QLoRA (Customer Support v2)')
   const [modelType, setModelType] = useState('RAG + QLoRA')
-  const [baseModel, setBaseModel] = useState('Llama-3-8B-Instruct')
+  const [baseModel, setBaseModel] = useState('Qwen/Qwen2.5-0.5B-Instruct')
   const [dataset, setDataset] = useState('Customer Support QA Dataset')
   const [isStarting, setIsStarting] = useState(false)
   const [successBanner, setSuccessBanner] = useState<string | null>(null)
@@ -51,21 +51,36 @@ export const ExperimentCenter: React.FC = () => {
     try {
       const [expRes, compRes] = await Promise.all([
         fetch(`${apiBase}/api/v1/experiments`, { headers: { Authorization: `Bearer ${session.token}` } }),
-        fetch(`${apiBase}/api/v1/experiments/1/comparison`, { headers: { Authorization: `Bearer ${session.token}` } }),
+        fetch(`${apiBase}/api/v1/experiments/3/comparison`, { headers: { Authorization: `Bearer ${session.token}` } }),
       ])
 
       if (expRes.ok) {
         const expData = await expRes.json()
         const rawItems = expData.items || []
-        const mapped: ExperimentItem[] = rawItems.map((e: any) => ({
-          id: e.id,
-          name: e.name,
-          modelType: e.model_variant || 'RAG + QLoRA',
-          dataset: e.dataset_name || 'Customer Support QA',
-          status: e.status === 'COMPLETED' ? 'Completed' : e.status === 'RUNNING' ? 'Running' : e.status === 'FAILED' ? 'Failed' : 'Queued',
-          startedOn: e.created_at ? new Date(e.created_at).toLocaleDateString() : 'Recent',
-          duration: e.status === 'COMPLETED' ? '2h 14m' : 'Queued',
-        }))
+        const mapped: ExperimentItem[] = rawItems.map((e: any) => {
+          const isLegacyRef = e.id === 1 || e.status === 'LEGACY_REFERENCE' || e.name?.includes('(Customer Support v1)')
+          let displayName = e.name
+          if (isLegacyRef && !displayName.includes('LEGACY')) {
+            displayName = `${displayName} [LEGACY / REFERENCE — NOT EXPERIMENTALLY EXECUTED]`
+          }
+          return {
+            id: e.id,
+            name: displayName,
+            modelType: e.model_variant || 'RAG + QLoRA',
+            dataset: e.dataset_name || 'Customer Support QA',
+            status: isLegacyRef
+              ? 'Legacy Reference'
+              : e.status === 'COMPLETED'
+              ? 'Completed'
+              : e.status === 'RUNNING'
+              ? 'Running'
+              : e.status === 'FAILED'
+              ? 'Failed'
+              : 'Queued',
+            startedOn: e.created_at ? new Date(e.created_at).toLocaleDateString() : 'Recent',
+            duration: isLegacyRef ? 'Reference Only' : e.duration || (e.status === 'COMPLETED' ? 'Finished' : 'Queued'),
+          }
+        })
         setExperiments(mapped)
       }
 
@@ -336,12 +351,15 @@ export const ExperimentCenter: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] text-slate-400 mb-1">Base Model</label>
-                <input
-                  type="text"
+                <select
                   value={baseModel}
                   onChange={(e) => setBaseModel(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
-                />
+                >
+                  <option value="Qwen/Qwen2.5-0.5B-Instruct">Qwen/Qwen2.5-0.5B-Instruct (SUPPORTED LOCALLY)</option>
+                  <option value="Llama-3-8B-Instruct">Llama-3-8B-Instruct (REGISTRY / EXTERNAL / NOT CONFIGURED)</option>
+                  <option value="TinyLlama/TinyLlama-1.1B-Chat-v1.0">TinyLlama/TinyLlama-1.1B-Chat-v1.0 (REGISTRY / EXTERNAL / NOT CONFIGURED)</option>
+                </select>
               </div>
 
               <div>
@@ -417,6 +435,8 @@ export const ExperimentCenter: React.FC = () => {
                             ? 'bg-blue-500/10 text-blue-300 border-blue-500/30'
                             : exp.status === 'Queued'
                             ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                            : exp.status === 'Legacy Reference'
+                            ? 'bg-slate-700/50 text-slate-300 border-slate-600'
                             : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
                         }`}
                       >
