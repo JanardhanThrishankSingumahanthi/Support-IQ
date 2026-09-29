@@ -132,15 +132,21 @@ def chat_message(
             other_chunks = [c for c in retrieved_chunks if c.get("document_id") != payload.attachment_document_id]
             retrieved_chunks = attached_chunks[:2] + other_chunks[:2]
 
-    # 2. EVIDENCE CHECK (requiring substantive non-domain terms or high lexical match)
+    # 2. EVIDENCE CHECK (requiring substantive non-domain terms or high lexical match + intent consistency)
     top_c = retrieved_chunks[0] if retrieved_chunks else {}
     substantive_terms = top_c.get("substantive_matched_terms")
     if substantive_terms is None:
         from app.retrieval.service import DOMAIN_STOPWORDS
         substantive_terms = [t for t in top_c.get("matched_terms", []) if t not in DOMAIN_STOPWORDS]
 
+    from app.retrieval.service import check_intent_consistency
+    intent_ok, query_intents, matched_intents = check_intent_consistency(
+        content, retrieved_chunks[:3]
+    )
+
     has_evidence = (
         len(retrieved_chunks) > 0 
+        and intent_ok
         and (
             payload.attachment_document_id is not None
             or (
@@ -196,7 +202,7 @@ def chat_message(
         grounding_report = retrieval_service.analyze_answer_grounding(query=content, answer=answer_text, top_k=4)
         reliability = grounding_report.get("reliability", {})
         reliability_score = reliability.get("score", 0.0)
-        if reliability_score < 0.40:
+        if reliability_score < 0.40 or grounding_report.get("grounding_status") == "unsupported":
             generation_status = "low_confidence"
     else:
         grounding_report = {

@@ -76,6 +76,75 @@ DOMAIN_STOPWORDS = {
     "customer", "customers", "user", "users", "client", "clients", "company"
 }
 
+INTENT_CANONICAL_GROUPS: dict[str, set[str]] = {
+    "cancel": {"cancel", "cancels", "canceled", "cancelled", "canceling", "cancelling", "cancellation", "cancellations"},
+    "refund": {"refund", "refunds", "refunded", "refunding"},
+    "return": {"return", "returns", "returned", "returning"},
+    "replace": {"replace", "replaces", "replaced", "replacing", "replacement", "replacements"},
+    "exchange": {"exchange", "exchanges", "exchanged", "exchanging"},
+    "encrypt": {"encrypt", "encrypts", "encrypted", "encrypting", "encryption", "encryptions"},
+    "protect": {"protect", "protects", "protected", "protecting", "protection", "protections"},
+    "renew": {"renew", "renews", "renewed", "renewing", "renewal", "renewals"},
+}
+
+INTENT_VARIANT_TO_CANONICAL: dict[str, str] = {
+    variant: canonical
+    for canonical, variants in INTENT_CANONICAL_GROUPS.items()
+    for variant in variants
+}
+
+
+def extract_query_intents(tokens: list[str]) -> set[str]:
+    """Identifies canonical operative action/intent terms from tokens."""
+    intents: set[str] = set()
+    for token in tokens:
+        canonical = INTENT_VARIANT_TO_CANONICAL.get(token.lower())
+        if canonical:
+            intents.add(canonical)
+    return intents
+
+
+def check_intent_consistency(
+    query_or_tokens: list[str] | str,
+    evidence_text_or_chunks: list[dict[str, Any]] | list[str] | str,
+) -> tuple[bool, set[str], set[str]]:
+    """
+    Evaluates whether operative intent(s) present in the query are represented
+    in the retrieved evidence.
+    
+    Evaluates the union of the top 3 retrieved chunks if a list is provided.
+    
+    Returns:
+        (is_consistent, query_intents, matched_intents)
+    """
+    if isinstance(query_or_tokens, str):
+        q_tokens = tokenize(query_or_tokens, filter_stopwords=True)
+    else:
+        q_tokens = query_or_tokens
+
+    q_intents = extract_query_intents(q_tokens)
+    if not q_intents:
+        # If no operative intent term is identified in the query, consistency passes
+        return True, set(), set()
+
+    if isinstance(evidence_text_or_chunks, list):
+        chunk_texts = [
+            (c.get("content") or "") if isinstance(c, dict) else str(c)
+            for c in evidence_text_or_chunks[:3]
+        ]
+        combined = " ".join(chunk_texts)
+    else:
+        combined = str(evidence_text_or_chunks or "")
+
+    ev_tokens = set(tokenize(combined, filter_stopwords=False))
+    matched: set[str] = set()
+    for intent in q_intents:
+        if INTENT_CANONICAL_GROUPS[intent].intersection(ev_tokens):
+            matched.add(intent)
+
+    return len(matched) > 0, q_intents, matched
+
+
 
 def lexical_score(query_tokens: list[str], chunk_text: str) -> float:
     if not query_tokens:
@@ -233,6 +302,19 @@ class RetrievalService:
             grounding_status = "unsupported"
         elif coverage < 0.8:
             grounding_status = "partially_supported"
+
+        # Dual validation: answer <-> evidence support AND query intent <-> evidence relevance
+        intent_ok, query_intents, matched_intents = check_intent_consistency(
+            query, retrieval_results[:3]
+        )
+        if query_intents and not intent_ok:
+            grounding_status = "unsupported"
+            reliability_score = 0.0
+            coverage = 0.0
+            average_support = 0.0
+            supported_claim_count = 0
+            for details in claim_details:
+                details["supported"] = False
 
         return {
             "query": query,
