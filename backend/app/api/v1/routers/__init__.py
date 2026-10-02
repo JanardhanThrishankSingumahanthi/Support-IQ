@@ -52,11 +52,25 @@ def v1_health(db: Session = Depends(get_db)) -> dict:
         models = runtime.get_models_metadata()
         active_models = [m["id"] for m in models if m.get("available")]
         model_status = "ready" if active_models else "unavailable"
+        # Check cloud GPU inference status
+        if runtime.is_cloud_inference_configured:
+            cloud_status = runtime._get_cloud_inference_status()
+            gpu_inference_status = "connected" if cloud_status.get("connected") else "disconnected"
+        else:
+            gpu_inference_status = "local" if cuda_available else "not_configured"
+
+        qlora_avail = any(m["id"] == "qlora" and m.get("available") for m in models)
+        lora_avail = any(m["id"] == "lora" and m.get("available") for m in models)
+        qlora_status = "available" if qlora_avail else "unavailable"
+        lora_status = "available" if lora_avail else "unavailable"
     except Exception as e:
         device = "unknown"
         cuda_available = False
         active_models = []
         model_status = f"unavailable: {str(e)}"
+        gpu_inference_status = "disconnected"
+        qlora_status = "unavailable"
+        lora_status = "unavailable"
 
     overall_status = "ok" if db_status == "ok" else "degraded"
 
@@ -69,6 +83,9 @@ def v1_health(db: Session = Depends(get_db)) -> dict:
         "cuda_available": cuda_available,
         "model_status": model_status,
         "available_models": active_models,
+        "gpu_inference": gpu_inference_status,
+        "qlora_status": qlora_status,
+        "lora_status": lora_status,
     }
 
 

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     frontend_url: str = "http://localhost:5173"
     supportiq_data_dir: str | None = None
+    supportiq_inference_url: str | None = None
+    supportiq_inference_api_key: str | None = None
+    supportiq_inference_timeout_seconds: float = 30.0
     database_url: str | None = None
     secret_key: str = "change-me-in-production"
     session_ttl_minutes: int = 480

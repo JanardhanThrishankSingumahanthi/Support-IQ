@@ -28,3 +28,8 @@ services:
       #   value: /var/data
       - key: SUPPORTIQ_DATA_DIR
         value: ""
+      # Cloud GPU Inference Service configuration (e.g., RunPod, Modal, or GCP/AWS):
+      - key: SUPPORTIQ_INFERENCE_URL
+        value: ""
+      - key: SUPPORTIQ_INFERENCE_API_KEY
+        value: ""

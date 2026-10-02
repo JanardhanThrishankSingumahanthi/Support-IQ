@@ -24,16 +24,77 @@ class ModelUnavailableError(RuntimeError):
     pass
 
 
+from app.core.config import get_settings
+
+
 class ModelRuntimeService:
     """Thread-safe, lazy-loading runtime service for SupportIQ models (Base, LoRA, QLoRA).
     
     Caches loaded models in memory to avoid per-request reloading overhead.
+    Supports both local execution (with local CUDA/CPU) and remote cloud GPU microservice.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._loaded_models: dict[str, tuple[Any, Any]] = {}  # variant -> (model, tokenizer)
         self._device = "cuda:0" if self._is_cuda_available() else "cpu"
+        self._cached_remote_status: dict[str, Any] | None = None
+        self._remote_status_timestamp: float = 0.0
+
+    @property
+    def is_cloud_inference_configured(self) -> bool:
+        settings = get_settings()
+        return bool(settings.supportiq_inference_url and settings.supportiq_inference_url.strip())
+
+    def _get_cloud_inference_status(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Checks connectivity and model availability on the remote cloud GPU service."""
+        settings = get_settings()
+        url = (settings.supportiq_inference_url or "").rstrip("/")
+        if not url:
+            return {"configured": False, "connected": False, "models": []}
+
+        now = time.time()
+        if not force_refresh and self._cached_remote_status and (now - self._remote_status_timestamp < 5.0):
+            return self._cached_remote_status
+
+        import httpx
+
+        headers: dict[str, str] = {}
+        if settings.supportiq_inference_api_key:
+            headers["X-API-Key"] = settings.supportiq_inference_api_key
+
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                res = client.get(f"{url}/models", headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    status_info = {
+                        "configured": True,
+                        "connected": True,
+                        "models": data.get("models", []),
+                    }
+                    self._cached_remote_status = status_info
+                    self._remote_status_timestamp = now
+                    return status_info
+                status_info = {
+                    "configured": True,
+                    "connected": False,
+                    "error": f"HTTP {res.status_code}",
+                    "models": [],
+                }
+                self._cached_remote_status = status_info
+                self._remote_status_timestamp = now
+                return status_info
+        except Exception as exc:
+            status_info = {
+                "configured": True,
+                "connected": False,
+                "error": str(exc),
+                "models": [],
+            }
+            self._cached_remote_status = status_info
+            self._remote_status_timestamp = now
+            return status_info
 
     @staticmethod
     def _is_cuda_available() -> bool:
@@ -72,6 +133,20 @@ class ModelRuntimeService:
         if normalized == "extractive":
             return True, "Extractive heuristic synthesizer is always available."
 
+        # 1. If remote cloud GPU inference is configured, delegate availability to remote GPU
+        if self.is_cloud_inference_configured:
+            remote_info = self._get_cloud_inference_status()
+            if not remote_info.get("connected"):
+                return False, f"Cloud GPU service is configured but currently unreachable: {remote_info.get('error', 'connection failed')}."
+            for m in remote_info.get("models", []):
+                if m.get("id") == normalized:
+                    if m.get("available"):
+                        gpu_desc = m.get("device", "cuda:0")
+                        return True, f"SupportIQ {normalized.upper()} is active on Cloud GPU ({gpu_desc})."
+                    return False, m.get("reason", "Cloud GPU reported model unavailable.")
+            return False, f"Cloud GPU service does not support model '{normalized}'."
+
+        # 2. Local environment availability checks
         try:
             import torch
         except ImportError:
@@ -79,7 +154,7 @@ class ModelRuntimeService:
 
         if normalized == "qlora":
             if not torch.cuda.is_available():
-                return False, "4-bit NF4 QLoRA requires a CUDA GPU, but CUDA is not available."
+                return False, "4-bit NF4 QLoRA requires a CUDA GPU, but CUDA is not available and no cloud GPU inference service is configured."
             adapter_path = self.get_adapter_path("qlora")
             if not adapter_path.exists():
                 return False, f"QLoRA adapter directory not found at {adapter_path}."
@@ -103,6 +178,9 @@ class ModelRuntimeService:
     def get_models_metadata(self) -> list[dict[str, Any]]:
         """Return status of all supported models for UI selection."""
         results = []
+        is_cloud = self.is_cloud_inference_configured
+        remote_info = self._get_cloud_inference_status() if is_cloud else {}
+
         for variant, name, desc, quant in [
             ("qlora", "SupportIQ QLoRA (4-bit NF4)", "Fine-tuned 4-bit NF4 adapter with double quantization (0.46 GB VRAM)", "4-bit NF4"),
             ("lora", "SupportIQ LoRA (FP16)", "Fine-tuned FP16 LoRA adapter with 0.84s average generation latency", "FP16"),
@@ -111,6 +189,12 @@ class ModelRuntimeService:
         ]:
             available, reason = self.is_model_available(variant)
             is_loaded = variant in self._loaded_models
+
+            if is_cloud and variant != "extractive":
+                device_label = "Cloud GPU (cuda:0)" if remote_info.get("connected") else "Cloud GPU (Disconnected)"
+            else:
+                device_label = self._device if variant != "extractive" else "cpu"
+
             results.append({
                 "id": variant,
                 "name": name,
@@ -119,7 +203,7 @@ class ModelRuntimeService:
                 "available": available,
                 "loaded": is_loaded,
                 "reason": reason,
-                "device": self._device if variant != "extractive" else "cpu",
+                "device": device_label,
             })
         return results
 
@@ -206,6 +290,60 @@ class ModelRuntimeService:
 
             raise ModelUnavailableError(f"Unsupported model variant: {normalized}")
 
+    def _generate_remote(
+        self,
+        query: str,
+        context_chunks: list[dict[str, Any]],
+        model_variant: str,
+        max_new_tokens: int,
+    ) -> dict[str, Any]:
+        settings = get_settings()
+        url = (settings.supportiq_inference_url or "").rstrip("/")
+        timeout = float(settings.supportiq_inference_timeout_seconds)
+
+        import httpx
+
+        headers: dict[str, str] = {}
+        if settings.supportiq_inference_api_key:
+            headers["X-API-Key"] = settings.supportiq_inference_api_key
+
+        payload = {
+            "model": model_variant,
+            "query": query,
+            "context_chunks": context_chunks[:4],
+            "max_new_tokens": max_new_tokens,
+            "temperature": 0.0,
+        }
+
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                res = client.post(f"{url}/generate", json=payload, headers=headers)
+                if res.status_code == 401:
+                    raise ModelUnavailableError("Authentication failed: invalid SUPPORTIQ_INFERENCE_API_KEY.")
+                if res.status_code != 200:
+                    detail = res.text
+                    try:
+                        detail = res.json().get("detail", detail)
+                    except Exception:
+                        pass
+                    raise ModelUnavailableError(f"Cloud GPU service returned HTTP {res.status_code}: {detail}")
+
+                data = res.json()
+                return {
+                    "answer": data["answer"],
+                    "latency_ms": data.get("latency_ms", 0.0),
+                    "latency_sec": data.get("latency_seconds", 0.0),
+                    "model_variant": model_variant,
+                    "model_display_name": data.get("model_display_name") or f"SupportIQ {model_variant.upper()}",
+                    "peak_vram_gb": data.get("peak_vram_gb"),
+                    "gpu": data.get("gpu", "Cloud GPU"),
+                    "status": "resolved",
+                }
+        except httpx.TimeoutException:
+            raise ModelUnavailableError(f"Cloud GPU inference request timed out after {timeout} seconds.")
+        except httpx.RequestError as exc:
+            raise ModelUnavailableError(f"Unable to reach Cloud GPU inference service: {str(exc)}")
+
     def generate_answer(
         self,
         query: str,
@@ -215,6 +353,18 @@ class ModelRuntimeService:
     ) -> dict[str, Any]:
         """Generates an answer using the requested neural model variant with support context."""
         normalized = self.normalize_variant(model_variant)
+        if normalized == "extractive":
+            raise ValueError("Extractive synthesizer should be handled by synthesize_support_answer.")
+
+        # Check if remote cloud GPU inference is configured
+        if self.is_cloud_inference_configured:
+            return self._generate_remote(
+                query=query,
+                context_chunks=context_chunks,
+                model_variant=normalized,
+                max_new_tokens=max_new_tokens,
+            )
+
         model, tokenizer = self.load_model(normalized)
 
         # Build clean grounded context from top retrieved chunks
