@@ -103,7 +103,11 @@ def chat_message(
     db.refresh(user_message)
 
     # 1. RETRIEVE
-    retrieval_service = RetrievalService(db=db, user_id=None)  # Search across verified knowledge base
+    is_privileged = bool(
+        current_user.is_superuser
+        or (current_user.role and current_user.role.name in ["Administrator", "Support Agent", "Agent"])
+    )
+    retrieval_service = RetrievalService(db=db, user_id=current_user.id, is_privileged=is_privileged)
     retrieved_chunks = (
         retrieval_service.retrieve(query=content, top_k=4, retrieval_method="hybrid")
         if payload.use_knowledge_base
@@ -228,7 +232,17 @@ def chat_message(
     # Format citations only when valid evidence is found
     citations_data = []
     if has_evidence and generation_status != "model_unavailable":
+        top_chunk_doc_id = retrieved_chunks[0].get("document_id") if retrieved_chunks else None
         for chunk in retrieved_chunks[:3]:
+            # Filter citations to relevant chunks: must have positive substantive match or belong to the top evidence document
+            chunk_substantive = chunk.get("substantive_matched_terms", [])
+            chunk_doc_id = chunk.get("document_id")
+            chunk_score = chunk.get("similarity_score", 0.0)
+            if chunk_score < 0.15:
+                continue
+            if chunk_doc_id != top_chunk_doc_id and not chunk_substantive:
+                continue
+
             doc_meta = chunk.get("document_metadata") or {}
             chunk_obj = db.query(DocumentChunk).filter(DocumentChunk.id == chunk.get("chunk_id")).first()
             page_num = 1

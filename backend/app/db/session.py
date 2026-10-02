@@ -7,7 +7,7 @@ settings = get_settings()
 
 
 def create_db_engine():
-    return create_engine(settings.database_url, future=True, pool_pre_ping=True)
+    return create_engine(settings.effective_database_url, future=True, pool_pre_ping=True)
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=create_db_engine(), future=True)

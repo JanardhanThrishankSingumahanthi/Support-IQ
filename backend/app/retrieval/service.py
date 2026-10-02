@@ -186,9 +186,10 @@ def compute_mrr(relevant_ids: list[int], retrieved_ids: list[int]) -> float:
 
 
 class RetrievalService:
-    def __init__(self, db: Session, user_id: int | None = None):
+    def __init__(self, db: Session, user_id: int | None = None, is_privileged: bool = False):
         self.db = db
         self.user_id = user_id
+        self.is_privileged = is_privileged
 
     @staticmethod
     def split_answer_claims(answer: str) -> list[str]:
@@ -336,8 +337,10 @@ class RetrievalService:
 
     def _query_documents(self):
         query = self.db.query(Document).filter(Document.status == "COMPLETED")
-        if self.user_id is not None:
-            query = query.filter(Document.owner_id == self.user_id)
+        if self.user_id is not None and not self.is_privileged:
+            query = query.filter(
+                (Document.owner_id == self.user_id) | (Document.owner_id.is_(None))
+            )
         return query.order_by(Document.updated_at.desc())
 
     def ensure_chunk_embedding(self, chunk: DocumentChunk) -> list[float]:
@@ -507,9 +510,17 @@ def synthesize_support_answer(query: str, retrieved_chunks: list[dict[str, Any]]
     lead = paragraphs[0] if paragraphs else content
 
     if len(retrieved_chunks) > 1:
-        second = retrieved_chunks[1].get("content", "").strip()
-        second_lead = second.split("\n\n")[0] if "\n\n" in second else second[:200]
-        return f"{lead}\n\nAdditionally: {second_lead}"
+        second = retrieved_chunks[1]
+        second_doc_id = second.get("document_id")
+        top_doc_id = top_chunk.get("document_id")
+        second_substantive = second.get("substantive_matched_terms", [])
+        second_score = second.get("similarity_score", 0.0)
+        # Only append second chunk if it is directly relevant to the question and context
+        if (second_doc_id == top_doc_id or len(second_substantive) >= 1) and second_score >= 0.25:
+            second_text = second.get("content", "").strip()
+            second_lead = second_text.split("\n\n")[0] if "\n\n" in second_text else second_text[:200]
+            if second_lead and second_lead != lead:
+                return f"{lead}\n\nAdditionally: {second_lead}"
 
     return lead
 

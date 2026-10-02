@@ -4,6 +4,7 @@ from datetime import timezone
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import hash_token, session_expiration, utcnow, verify_password
 from app.db.models import Permission, Session as UserSession, User
 from app.db.session import SessionLocal
@@ -52,7 +53,8 @@ def get_current_user(
     token_hash = hash_token(token)
     session = db.query(UserSession).filter_by(token_hash=token_hash).first()
     if session is None or not session.is_valid:
-        if token == "demo-token":
+        settings = get_settings()
+        if token == "demo-token" and settings.environment == "development" and settings.debug:
             dev_user = db.query(User).filter_by(email="janardhan@supportiq.com").first() or db.query(User).first()
             if dev_user and dev_user.is_active:
                 return dev_user

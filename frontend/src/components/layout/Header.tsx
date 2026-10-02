@@ -134,6 +134,26 @@ export function Header({
     setNotifications([])
   }
 
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check for Ctrl+K (Windows/Linux) or Cmd+K (macOS)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+      } else if (e.key === 'Escape') {
+        if (document.activeElement === searchInputRef.current) {
+          searchInputRef.current?.blur()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-800 bg-[#070d18]/90 px-4 md:px-6 backdrop-blur-md">
       {/* Search Input with Ctrl+K */}
@@ -148,13 +168,17 @@ export function Header({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
+            ref={searchInputRef}
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={searchPlaceholder}
             className="h-10 w-full rounded-xl border border-slate-700/80 bg-slate-900/90 pl-10 pr-16 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 transition"
           />
-          <kbd className="pointer-events-none absolute right-3 hidden rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 sm:inline-block">
+          <kbd
+            onClick={() => searchInputRef.current?.focus()}
+            className="pointer-events-auto absolute right-3 hidden rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 sm:inline-block cursor-pointer select-none hover:border-slate-500"
+          >
             Ctrl + K
           </kbd>
         </div>

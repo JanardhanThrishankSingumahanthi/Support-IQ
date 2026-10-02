@@ -26,3 +26,5 @@ frontend/node-v*.zip
 .tools/
 
 scratch/
+storage/
+backend/storage/

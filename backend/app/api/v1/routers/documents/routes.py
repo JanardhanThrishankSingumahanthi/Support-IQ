@@ -21,9 +21,8 @@ MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024
 
 
 def document_storage_root() -> Path:
-    root = Path(__file__).resolve().parents[4] / "storage" / "documents"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    from app.core.config import get_settings
+    return get_settings().document_storage_dir
 
 
 def normalize_document_status(value: str | None) -> str:
@@ -455,7 +454,11 @@ async def retry_document_processing(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    document = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
+    query = db.query(Document).filter(Document.id == document_id)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name in ["Administrator", "Knowledge Manager"]))
+    if not is_privileged:
+        query = query.filter(Document.owner_id == current_user.id)
+    document = query.first()
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "not_found", "message": "Document was not found."})
 
@@ -481,7 +484,11 @@ def reindex_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    document = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
+    query = db.query(Document).filter(Document.id == document_id)
+    is_privileged = bool(current_user.is_superuser or (current_user.role and current_user.role.name in ["Administrator", "Knowledge Manager"]))
+    if not is_privileged:
+        query = query.filter(Document.owner_id == current_user.id)
+    document = query.first()
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"status": "not_found", "message": "Document was not found."})
 

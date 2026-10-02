@@ -8,7 +8,7 @@ from app.api.deps import get_current_user, get_db, require_permission, require_r
 from app.api.errors import not_implemented
 from app.api.schemas import EmptyResponse, ErrorResponse, NoteResponse
 from app.core.config import get_settings
-from app.core.security import generate_token, hash_password, hash_token, session_expiration, verify_password
+from app.core.security import generate_token, hash_password, hash_token, session_expiration, utcnow, verify_password
 from app.db.init_db import ensure_roles_and_permissions
 from app.db.models import Role, Session as UserSession, User
 
@@ -74,8 +74,25 @@ def auth_health():
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    normalized_email = payload.email.lower()
+def register(
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+):
+    normalized_email = payload.email.lower().strip()
+    full_name = payload.full_name.strip()
+    if not full_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"status": "invalid_name", "message": "Full name cannot be blank."},
+        )
+
+    if len(payload.password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"status": "weak_password", "message": "Password must be at least 8 characters long."},
+        )
+
     ensure_roles_and_permissions(db)
 
     if db.query(User).filter(User.email == normalized_email).first():
@@ -84,8 +101,31 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             detail={"status": "email_taken", "message": "An account with this email already exists."},
         )
 
-    role_name = payload.role_name or "Viewer"
-    role = db.query(Role).filter(Role.name == role_name).first()
+    role_name = (payload.role_name or "Customer").strip()
+
+    # Role security: Unrestricted public users cannot self-register as Administrator
+    if role_name.lower() == "administrator":
+        is_admin_authorized = False
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+            session = db.query(UserSession).filter_by(token_hash=hash_token(token), is_valid=True).first()
+            if session:
+                expires_at = session.expires_at
+                if expires_at.tzinfo is None:
+                    from datetime import timezone
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at >= utcnow():
+                    user_auth = session.user
+                    if user_auth and user_auth.is_active and user_auth.role and user_auth.role.name == "Administrator":
+                        is_admin_authorized = True
+
+        if not is_admin_authorized:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"status": "forbidden", "message": "Self-registration as Administrator is not permitted."},
+            )
+
+    role = db.query(Role).filter(Role.name.ilike(role_name)).first()
     if role is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,7 +134,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
     user = User(
         email=normalized_email,
-        full_name=payload.full_name.strip(),
+        full_name=full_name,
         password_hash=hash_password(payload.password),
         role_id=role.id,
         is_active=True,

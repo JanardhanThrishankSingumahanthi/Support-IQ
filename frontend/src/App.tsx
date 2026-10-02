@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 
 // Direct implementations matching Reference Images 1–12
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { Dashboard } from './pages/Dashboard';
 import { Chat } from './pages/Chat';
 import { KnowledgeBase } from './pages/KnowledgeBase';
@@ -20,8 +21,10 @@ import { SupportTickets } from './pages/SupportTickets';
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Public Login Route (Reference Image 2) */}
+      {/* Public Login & Register Routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/signup" element={<Navigate to="/register" replace />} />
 
       {/* Root redirect */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -54,6 +54,10 @@ ROLE_DEFINITIONS = {
         "read_documents",
         "view_reports",
     ],
+    "Customer": [
+        "read_documents",
+        "view_reports",
+    ],
 }
 
 
@@ -190,13 +194,12 @@ def seed_demo_data() -> None:
                 },
             ]
 
-            admin_user = seeded_users["janardhan@supportiq.com"]
             for spec in doc_specs:
                 doc = Document(
                     title=spec["title"],
                     content="\n\n".join(spec["chunks"]),
                     status="COMPLETED",
-                    owner_id=admin_user.id,
+                    owner_id=None,
                     metadata_json={
                         "filename": spec["title"],
                         "file_type": spec["file_type"],
@@ -223,6 +226,18 @@ def seed_demo_data() -> None:
                         },
                     )
                     session.add(chunk)
+        else:
+            # Ensure seeded platform documents have owner_id=None so they are shared across users
+            seeded_titles = [
+                "Return_Policy.pdf",
+                "Terms_of_Service.pdf",
+                "Product_Warranty.pdf",
+                "Customer_FAQ.pdf",
+                "Payment_Guide.docx",
+                "Account_Management.pdf",
+            ]
+            session.query(Document).filter(Document.title.in_(seeded_titles)).update({"owner_id": None}, synchronize_session=False)
+            session.commit()
 
         # 3. Seed Support Tickets if none exist
         if session.query(SupportTicket).count() == 0:
@@ -443,5 +458,10 @@ def seed_demo_data() -> None:
                             details_json={"value": m_val},
                         )
                     )
+        # 5. Guarantee foreign key integrity for experiments
+        admin_user = seeded_users.get("janardhan@supportiq.com") or session.query(User).filter_by(email="janardhan@supportiq.com").first()
+        if admin_user:
+            valid_user_ids = [u[0] for u in session.query(User.id).all()]
+            session.query(Experiment).filter(~Experiment.created_by_user_id.in_(valid_user_ids)).update({"created_by_user_id": admin_user.id}, synchronize_session=False)
 
         session.commit()

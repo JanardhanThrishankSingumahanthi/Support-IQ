@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_pagination
+from app.core.security import utcnow
 from app.db.models import SupportTicket, TicketEvent, TicketMessage, User
 
 router = APIRouter(prefix="/support-tickets", tags=["support-tickets"])
@@ -249,7 +250,7 @@ def update_ticket(ticket_id: int = Path(..., gt=0), payload: TicketUpdateRequest
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"status": "invalid_status", "message": "Ticket status must be one of: Open, In Progress, Resolved, Escalated, Closed."})
         ticket.status = normalized
         if normalized == "Resolved":
-            ticket.resolved_at = datetime.utcnow()
+            ticket.resolved_at = utcnow()
         elif normalized in {"Open", "In Progress", "Escalated"}:
             ticket.resolved_at = None
 

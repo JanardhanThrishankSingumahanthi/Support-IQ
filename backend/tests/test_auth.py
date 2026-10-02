@@ -72,7 +72,30 @@ def test_invalid_login_and_unauthorized_access():
     assert protected_response.json()["status"] == "unauthorized"
 
 
+def test_unauthorized_registration_as_administrator_is_forbidden():
+    email = make_email("unauthorized_admin")
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "full_name": "Attacker",
+            "password": "StrongPass123!",
+            "role_name": "Administrator",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["status"] == "forbidden"
+
+
 def test_role_permissions_and_logout():
+    # Login as seeded administrator to obtain authorization to register an Administrator
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "janardhan@supportiq.com", "password": "SupportIQ2026!"},
+    )
+    assert admin_login.status_code == 200
+    dev_admin_token = admin_login.json()["token"]
+
     admin_email = make_email("admin")
     register_response = client.post(
         "/api/v1/auth/register",
@@ -82,6 +105,7 @@ def test_role_permissions_and_logout():
             "password": "StrongPass123!",
             "role_name": "Administrator",
         },
+        headers={"Authorization": f"Bearer {dev_admin_token}"},
     )
     assert register_response.status_code == 201
     admin_token = register_response.json()["token"]

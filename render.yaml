@@ -23,3 +23,8 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         value: ""
+      # Set SUPPORTIQ_DATA_DIR if a persistent disk is mounted (e.g., on Render Starter+ plan):
+      # - key: SUPPORTIQ_DATA_DIR
+      #   value: /var/data
+      - key: SUPPORTIQ_DATA_DIR
+        value: ""
