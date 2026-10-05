@@ -202,6 +202,21 @@ export function Header({
           </span>
         </div>
 
+        {/* Help / Guide Link */}
+        <button
+          type="button"
+          onClick={() => navigate('/how-to-use')}
+          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-cyan-300 transition cursor-pointer"
+          aria-label="How to Use SupportIQ Guide"
+          title="How to Use SupportIQ"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="12" y1="17" x2="12.01" y2="17" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+
         {/* Notifications Popover */}
         <div className="relative">
           <button
@@ -333,6 +348,17 @@ export function Header({
                 <p className="font-semibold text-white truncate">{user?.full_name || 'Janardhan'}</p>
                 <p className="text-[10px] text-slate-400 truncate">{user?.email || 'janardhan@supportiq.com'}</p>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  navigate('/how-to-use')
+                }}
+                className="w-full text-left px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg mt-1 cursor-pointer flex items-center justify-between"
+              >
+                <span>How to Use SupportIQ</span>
+                <span className="text-[10px] text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/50">Guide</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

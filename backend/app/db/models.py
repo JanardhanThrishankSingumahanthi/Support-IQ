@@ -85,6 +85,7 @@ class User(Base, TimestampMixin):
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
     support_tickets: Mapped[list["SupportTicket"]] = relationship(back_populates="user")
     feedback: Mapped[list["Feedback"]] = relationship(back_populates="user")
+    answer_feedback: Mapped[list["AnswerFeedback"]] = relationship(back_populates="user")
     analytics_events: Mapped[list["AnalyticsEvent"]] = relationship(back_populates="user")
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user")
     security_events: Mapped[list["SecurityEvent"]] = relationship(back_populates="user")
@@ -164,6 +165,7 @@ class Conversation(Base, TimestampMixin):
     user: Mapped[User | None] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
     claims: Mapped[list["Claim"]] = relationship(back_populates="conversation")
+    answer_feedback: Mapped[list["AnswerFeedback"]] = relationship(back_populates="conversation")
 
 
 class Message(Base, TimestampMixin):
@@ -178,6 +180,7 @@ class Message(Base, TimestampMixin):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     citations: Mapped[list["Citation"]] = relationship(back_populates="message")
     claims: Mapped[list["Claim"]] = relationship(back_populates="message")
+    answer_feedback: Mapped[list["AnswerFeedback"]] = relationship(back_populates="message")
 
 
 class Citation(Base, TimestampMixin):
@@ -399,6 +402,27 @@ class Feedback(Base, TimestampMixin):
     __table_args__ = (Index("ix_feedback_user_record", "user_id", "record_type", "record_id"),)
 
 
+class AnswerFeedback(Base, TimestampMixin):
+    __tablename__ = "answer_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True, nullable=False)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True, nullable=False)
+    feedback_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # "positive" or "negative"
+    reason: Mapped[str | None] = mapped_column(String(100), index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    user: Mapped[User] = relationship(back_populates="answer_feedback")
+    conversation: Mapped[Conversation] = relationship(back_populates="answer_feedback")
+    message: Mapped[Message] = relationship(back_populates="answer_feedback")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "message_id", name="uq_user_message_answer_feedback"),
+        Index("ix_answer_feedback_conversation", "conversation_id"),
+    )
+
+
 class AnalyticsEvent(Base, TimestampMixin):
     __tablename__ = "analytics_events"
 
@@ -452,6 +476,7 @@ class Notification(Base, TimestampMixin):
 
 __all__ = [
     "AnalyticsEvent",
+    "AnswerFeedback",
     "AuditLog",
     "Citation",
     "Claim",

@@ -28,6 +28,14 @@ class ChatMessageRequest(BaseModel):
     attachment: dict[str, Any] | None = None
 
 
+class ChatRegenerateRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    conversation_id: int
+    message_id: int | None = None
+    model_name: str | None = None
+    use_knowledge_base: bool = True
+
+
 def derive_title(content: str) -> str:
     cleaned = " ".join(content.strip().split())
     return cleaned[:40].strip() or "New conversation"
@@ -102,6 +110,33 @@ def chat_message(
     db.commit()
     db.refresh(user_message)
 
+    return _execute_chat_pipeline(
+        db=db,
+        current_user=current_user,
+        conversation=conversation,
+        content=content,
+        model_name=payload.model_name,
+        use_knowledge_base=payload.use_knowledge_base,
+        attachment_document_id=payload.attachment_document_id,
+        conversation_title=payload.title,
+        started_at=started_at,
+    )
+
+
+def _execute_chat_pipeline(
+    db: Session,
+    current_user: User,
+    conversation: Conversation,
+    content: str,
+    model_name: str | None,
+    use_knowledge_base: bool = True,
+    attachment_document_id: int | None = None,
+    conversation_title: str | None = None,
+    started_at: float | None = None,
+) -> dict[str, Any]:
+    if started_at is None:
+        started_at = time.perf_counter()
+
     # 1. RETRIEVE
     is_privileged = bool(
         current_user.is_superuser
@@ -110,13 +145,13 @@ def chat_message(
     retrieval_service = RetrievalService(db=db, user_id=current_user.id, is_privileged=is_privileged)
     retrieved_chunks = (
         retrieval_service.retrieve(query=content, top_k=4, retrieval_method="hybrid")
-        if payload.use_knowledge_base
+        if use_knowledge_base
         else []
     )
 
     # If an attachment_document_id is provided, ensure its chunks are included and prioritized
-    if payload.attachment_document_id:
-        attached_doc = db.query(Document).filter(Document.id == payload.attachment_document_id).first()
+    if attachment_document_id:
+        attached_doc = db.query(Document).filter(Document.id == attachment_document_id).first()
         if attached_doc and attached_doc.chunks:
             attached_chunks = []
             for c in attached_doc.chunks:
@@ -133,7 +168,7 @@ def chat_message(
                     "document_metadata": attached_doc.metadata_json or {},
                 })
             # Prioritize attached chunks at the top of retrieved context
-            other_chunks = [c for c in retrieved_chunks if c.get("document_id") != payload.attachment_document_id]
+            other_chunks = [c for c in retrieved_chunks if c.get("document_id") != attachment_document_id]
             retrieved_chunks = attached_chunks[:2] + other_chunks[:2]
 
     # 2. EVIDENCE CHECK (requiring substantive non-domain terms or high lexical match + intent consistency)
@@ -152,7 +187,7 @@ def chat_message(
         len(retrieved_chunks) > 0 
         and intent_ok
         and (
-            payload.attachment_document_id is not None
+            attachment_document_id is not None
             or (
                 top_c.get("similarity_score", 0) >= 0.15
                 and (len(substantive_terms) >= 2 or top_c.get("lexical_score", 0) >= 0.35)
@@ -160,10 +195,10 @@ def chat_message(
         )
     )
     runtime = get_model_runtime()
-    requested_variant = runtime.normalize_variant(payload.model_name)
+    requested_variant = runtime.normalize_variant(model_name)
     gen_latency_ms: float = 0.0
     peak_vram_gb: float | None = None
-    model_display_name: str = payload.model_name or "SupportIQ QLoRA (4-bit NF4)"
+    model_display_name: str = model_name or "SupportIQ QLoRA (4-bit NF4)"
 
     if has_evidence:
         if requested_variant == "extractive":
@@ -343,7 +378,7 @@ def chat_message(
             )
         )
 
-    conversation.title = payload.title or conversation.title or derive_title(content)
+    conversation.title = conversation_title or conversation.title or derive_title(content)
     conversation.state = "open"
     db.commit()
     db.refresh(conversation)
@@ -366,3 +401,77 @@ def chat_message(
         "reliability": reliability,
         "latency_ms": latency_ms,
     }
+
+
+@router.post("/regenerate")
+def regenerate_chat_message(
+    payload: ChatRegenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Regenerates the assistant answer for the preceding user query in a conversation."""
+    started_at = time.perf_counter()
+
+    conversation = (
+        db.query(Conversation)
+        .filter(Conversation.id == payload.conversation_id, Conversation.user_id == current_user.id)
+        .first()
+    )
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"status": "not_found", "message": "Conversation was not found."},
+        )
+
+    # Locate target message or latest assistant message
+    if payload.message_id:
+        target_message = (
+            db.query(Message)
+            .filter(Message.id == payload.message_id, Message.conversation_id == conversation.id)
+            .first()
+        )
+    else:
+        target_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id, Message.role == "assistant")
+            .order_by(Message.id.desc())
+            .first()
+        )
+
+    if not target_message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"status": "not_found", "message": "Assistant message to regenerate was not found."},
+        )
+
+    # Find the preceding user message
+    user_message = (
+        db.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.role == "user",
+            Message.id < target_message.id,
+        )
+        .order_by(Message.id.desc())
+        .first()
+    )
+    if not user_message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"status": "invalid_operation", "message": "No preceding user question found to regenerate answer for."},
+        )
+
+    model_name = payload.model_name or (target_message.metadata_json or {}).get("model") or "SupportIQ QLoRA (4-bit NF4)"
+    attachment_doc_id = (user_message.metadata_json or {}).get("attachment", {}).get("id")
+
+    return _execute_chat_pipeline(
+        db=db,
+        current_user=current_user,
+        conversation=conversation,
+        content=user_message.content,
+        model_name=model_name,
+        use_knowledge_base=payload.use_knowledge_base,
+        attachment_document_id=attachment_doc_id,
+        conversation_title=conversation.title,
+        started_at=started_at,
+    )

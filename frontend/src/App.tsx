@@ -17,6 +17,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { Security } from './pages/Security';
 import { Settings } from './pages/Settings';
 import { SupportTickets } from './pages/SupportTickets';
+import { HowToUse } from './pages/HowToUse';
 
 export function AppRoutes() {
   return (
@@ -169,6 +170,19 @@ export function AppRoutes() {
       />
 
       <Route path="/tickets" element={<Navigate to="/support-tickets" replace />} />
+
+      {/* How to Use SupportIQ Help System */}
+      <Route
+        path="/how-to-use"
+        element={
+          <AuthGate>
+            <Layout title="How to Use SupportIQ">
+              <HowToUse />
+            </Layout>
+          </AuthGate>
+        }
+      />
+      <Route path="/help" element={<Navigate to="/how-to-use" replace />} />
 
       {/* Catch-all fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

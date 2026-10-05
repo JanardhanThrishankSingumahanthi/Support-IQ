@@ -46,6 +46,21 @@ export function Chat() {
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
 
+  // Real Message Actions & Feedback States
+  const [feedbackMap, setFeedbackMap] = useState<
+    Record<number, { id?: number; feedback_type: 'positive' | 'negative'; reason?: string; comment?: string }>
+  >({})
+  const [activeNegativeMsgId, setActiveNegativeMsgId] = useState<number | null>(null)
+  const [selectedReason, setSelectedReason] = useState<string>('Answer is incorrect')
+  const [negativeComment, setNegativeComment] = useState<string>('')
+  const [activePositiveMsgId, setActivePositiveMsgId] = useState<number | null>(null)
+  const [positiveComment, setPositiveComment] = useState<string>('')
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState<boolean>(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+  const [copiedAnswerId, setCopiedAnswerId] = useState<number | null>(null)
+  const [copiedCitationId, setCopiedCitationId] = useState<number | null>(null)
+  const [regeneratingId, setRegeneratingId] = useState<number | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -235,6 +250,44 @@ export function Chat() {
     ])
   }
 
+  const fetchFeedbackForConversation = async (convId: number) => {
+    if (!session?.token || !convId) return
+    try {
+      const res = await fetch(`${apiBase}/api/v1/feedback/my?conversation_id=${convId}`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+      if (res.ok) {
+        const listData = await res.json()
+        const list = Array.isArray(listData) ? listData : (listData.items || [])
+        const map: Record<
+          number,
+          { id?: number; feedback_type: 'positive' | 'negative'; reason?: string; comment?: string }
+        > = {}
+        if (Array.isArray(list)) {
+          list.forEach((item: any) => {
+            if (item.message_id) {
+              map[item.message_id] = {
+                id: item.id,
+                feedback_type: item.feedback_type,
+                reason: item.reason,
+                comment: item.comment,
+              }
+            }
+          })
+        }
+        setFeedbackMap(map)
+      }
+    } catch (err) {
+      console.error('Failed to load feedback for conversation:', err)
+    }
+  }
+
+  useEffect(() => {
+    if (conversationId && session?.token) {
+      fetchFeedbackForConversation(conversationId)
+    }
+  }, [conversationId, session?.token])
+
   const handleNewChat = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -243,6 +296,12 @@ export function Chat() {
     localStorage.removeItem('supportiq_active_conversation_id')
     setMessages([])
     setConversationId(null)
+    setFeedbackMap({})
+    setActiveNegativeMsgId(null)
+    setActivePositiveMsgId(null)
+    setNegativeComment('')
+    setPositiveComment('')
+    setFeedbackError(null)
     setInput('')
     setCurrentQuestion('')
     setAttachedFile(null)
@@ -251,6 +310,164 @@ export function Chat() {
     setPipelineState('idle')
     setAttachmentError(null)
     setEscalationError(null)
+  }
+
+  const submitFeedback = async (
+    messageId: number,
+    feedbackType: 'positive' | 'negative',
+    reason?: string,
+    comment?: string
+  ) => {
+    if (!session?.token) return
+    setIsSubmittingFeedback(true)
+    setFeedbackError(null)
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({
+          message_id: messageId,
+          feedback_type: feedbackType,
+          reason: reason || undefined,
+          comment: comment || undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Feedback submission failed')
+      }
+
+      const resData = await res.json()
+      const saved = resData.feedback || resData
+      setFeedbackMap((prev) => ({
+        ...prev,
+        [messageId]: {
+          id: saved.id,
+          feedback_type: saved.feedback_type,
+          reason: saved.reason,
+          comment: saved.comment,
+        },
+      }))
+      setActiveNegativeMsgId(null)
+      setActivePositiveMsgId(null)
+      setNegativeComment('')
+      setPositiveComment('')
+    } catch (err: any) {
+      setFeedbackError(err.message || 'Error submitting feedback')
+    } finally {
+      setIsSubmittingFeedback(false)
+    }
+  }
+
+  const handleCopyAnswer = async (msgId: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedAnswerId(msgId)
+      setTimeout(() => setCopiedAnswerId(null), 2000)
+    } catch {
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = content
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        textArea.remove()
+        setCopiedAnswerId(msgId)
+        setTimeout(() => setCopiedAnswerId(null), 2000)
+      } catch (e) {
+        console.error('Copy failed:', e)
+      }
+    }
+  }
+
+  const handleCopyCitation = async (msgId: number, citations: CitationItem[]) => {
+    if (!citations || citations.length === 0) return
+    const text = citations
+      .map((c, idx) => {
+        let entry = `[Source ${idx + 1}] Document: ${c.document_title || 'Support Document'}`
+        if (c.page) entry += ` | Page ${c.page}`
+        if (c.match_percent) entry += ` (${c.match_percent}% match)`
+        if (c.quote) entry += `\nEvidence: "${c.quote}"`
+        return entry
+      })
+      .join('\n\n')
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedCitationId(msgId)
+      setTimeout(() => setCopiedCitationId(null), 2000)
+    } catch {
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        textArea.remove()
+        setCopiedCitationId(msgId)
+        setTimeout(() => setCopiedCitationId(null), 2000)
+      } catch (e) {
+        console.error('Copy citation failed:', e)
+      }
+    }
+  }
+
+  const handleRegenerate = async (msgId: number) => {
+    if (!session?.token || pipelineState !== 'idle' || !conversationId) return
+    setRegeneratingId(msgId)
+    setPipelineState('retrieving')
+
+    const genTimer = setTimeout(() => {
+      setPipelineState('generating')
+    }, 450)
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/chat/regenerate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          message_id: msgId,
+          model_name: selectedModel,
+          use_knowledge_base: useKB,
+        }),
+      })
+
+      clearTimeout(genTimer)
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Failed to regenerate response')
+      }
+
+      const data = await res.json()
+      setPipelineState('verifying')
+      await new Promise((r) => setTimeout(r, 200))
+
+      if (data.assistant_message) {
+        setMessages((prev) => [...prev, data.assistant_message])
+      }
+    } catch (err) {
+      clearTimeout(genTimer)
+      console.error('Error regenerating response:', err)
+    } finally {
+      setRegeneratingId(null)
+      setPipelineState('idle')
+    }
   }
 
   const handleSend = async (textToSend?: string) => {
@@ -699,33 +916,282 @@ export function Chat() {
                       </div>
                     )}
 
-                    {/* Feedback row */}
-                    {!isUser && (
-                      <div className="flex items-center flex-wrap gap-2.5 text-slate-500 text-[11px] pt-1">
-                        <button type="button" className="hover:text-cyan-400 transition" title="Helpful">
-                          👍
-                        </button>
-                        <button type="button" className="hover:text-rose-400 transition" title="Not helpful">
-                          👎
-                        </button>
-                        {meta.model && (
-                          <span className="rounded bg-slate-800/90 px-2 py-0.5 text-[9px] text-cyan-300 font-mono border border-slate-700/60 shadow-sm">
-                            {meta.model}
-                          </span>
+                    {/* Real Message Actions & Answer Feedback */}
+                    {!isUser && meta.status !== 'stopped' && meta.status !== 'error' && msg.content && (
+                      <div className="pt-1.5 space-y-2">
+                        <div className="flex items-center flex-wrap gap-2 text-slate-400 text-[11px]">
+                          {/* Helpful Thumb */}
+                          <button
+                            type="button"
+                            disabled={pipelineState !== 'idle' || isSubmittingFeedback}
+                            onClick={() => {
+                              if (feedbackMap[msg.id]?.feedback_type === 'positive') {
+                                setActivePositiveMsgId((prev) => (prev === msg.id ? null : msg.id))
+                              } else {
+                                submitFeedback(msg.id, 'positive')
+                              }
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition cursor-pointer ${
+                              feedbackMap[msg.id]?.feedback_type === 'positive'
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                                : 'bg-slate-900/60 hover:bg-emerald-950/40 text-slate-400 hover:text-emerald-300 border-slate-800 hover:border-emerald-700/50'
+                            }`}
+                            aria-label="Mark answer as helpful"
+                            title="Mark answer as helpful"
+                          >
+                            <span>👍</span>
+                            <span>Helpful</span>
+                          </button>
+
+                          {/* Not Helpful Thumb */}
+                          <button
+                            type="button"
+                            disabled={pipelineState !== 'idle' || isSubmittingFeedback}
+                            onClick={() => {
+                              setActivePositiveMsgId(null)
+                              setActiveNegativeMsgId((prev) => (prev === msg.id ? null : msg.id))
+                              if (feedbackMap[msg.id]?.reason) {
+                                setSelectedReason(feedbackMap[msg.id].reason || 'Answer is incorrect')
+                              }
+                              if (feedbackMap[msg.id]?.comment) {
+                                setNegativeComment(feedbackMap[msg.id].comment || '')
+                              }
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition cursor-pointer ${
+                              feedbackMap[msg.id]?.feedback_type === 'negative'
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-medium shadow-[0_0_12px_rgba(244,63,94,0.15)]'
+                                : 'bg-slate-900/60 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border-slate-800 hover:border-rose-700/50'
+                            }`}
+                            aria-label="Mark answer as not helpful"
+                            title="Mark answer as not helpful"
+                          >
+                            <span>👎</span>
+                            <span>Not Helpful</span>
+                            {feedbackMap[msg.id]?.reason && (
+                              <span className="hidden sm:inline text-[10px] text-rose-300/80 max-w-[110px] truncate">
+                                ({feedbackMap[msg.id].reason})
+                              </span>
+                            )}
+                          </button>
+
+                          <span className="text-slate-700">|</span>
+
+                          {/* Copy Answer */}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAnswer(msg.id, msg.content)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition cursor-pointer text-xs"
+                            aria-label="Copy answer to clipboard"
+                            title="Copy full answer text"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            <span>{copiedAnswerId === msg.id ? 'Copied!' : 'Copy'}</span>
+                          </button>
+
+                          {/* Copy Citation (when citations exist) */}
+                          {citations.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCitation(msg.id, citations)}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-800 transition cursor-pointer text-xs"
+                              aria-label="Copy citation to clipboard"
+                              title="Copy citation and evidence text"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                              </svg>
+                              <span>{copiedCitationId === msg.id ? 'Citation Copied!' : 'Copy Citation'}</span>
+                            </button>
+                          )}
+
+                          {/* View Evidence (when citations exist) */}
+                          {citations.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewCitation(citations[0])}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 hover:text-cyan-200 border border-cyan-800/40 transition cursor-pointer text-xs"
+                              aria-label="View document evidence"
+                              title="Open Document Evidence Viewer"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="16" x2="12" y2="12" />
+                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                              </svg>
+                              <span>Evidence</span>
+                            </button>
+                          )}
+
+                          {/* Regenerate Response */}
+                          <button
+                            type="button"
+                            disabled={pipelineState !== 'idle' || regeneratingId !== null}
+                            onClick={() => handleRegenerate(msg.id)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-800 transition cursor-pointer text-xs disabled:opacity-50"
+                            aria-label="Regenerate assistant response"
+                            title="Regenerate response with RAG"
+                          >
+                            <svg className={`w-3.5 h-3.5 ${regeneratingId === msg.id ? 'animate-spin text-cyan-400' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                            </svg>
+                            <span>{regeneratingId === msg.id ? 'Regenerating...' : 'Regenerate'}</span>
+                          </button>
+
+                          {/* Model & Latency badges */}
+                          {meta.model && (
+                            <span className="rounded bg-slate-800/90 px-2 py-0.5 text-[9px] text-cyan-300 font-mono border border-slate-700/60 shadow-sm ml-auto">
+                              {meta.model}
+                            </span>
+                          )}
+                          {meta.generation_latency_ms ? (
+                            <span className="text-[10px] text-emerald-400 font-mono">
+                              ⚡ Gen: {meta.generation_latency_ms}ms
+                            </span>
+                          ) : meta.latency_ms ? (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Total: {meta.latency_ms}ms
+                            </span>
+                          ) : null}
+                          {meta.peak_vram_gb && (
+                            <span className="text-[10px] text-purple-400 font-mono">
+                              VRAM: {meta.peak_vram_gb} GB
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Negative Feedback Form */}
+                        {activeNegativeMsgId === msg.id && (
+                          <div className="rounded-xl border border-rose-500/30 bg-slate-950/95 p-3.5 space-y-3 shadow-xl animate-fadeIn">
+                            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-rose-400">👎</span>
+                                <span className="font-semibold text-slate-200 text-xs">Help Us Improve This Answer</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveNegativeMsgId(null)}
+                                className="text-slate-500 hover:text-slate-300 text-xs font-mono cursor-pointer"
+                                aria-label="Close feedback form"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            <div>
+                              <p className="text-[11px] text-slate-400 mb-2">Why was this answer not helpful?</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {[
+                                  'Answer is incorrect',
+                                  'Answer is incomplete',
+                                  'Evidence is not relevant',
+                                  'Citation is incorrect',
+                                  'Answer was unclear',
+                                  'Other',
+                                ].map((reasonOption) => (
+                                  <button
+                                    key={reasonOption}
+                                    type="button"
+                                    onClick={() => setSelectedReason(reasonOption)}
+                                    className={`px-2.5 py-1.5 rounded-lg text-left text-[11px] transition cursor-pointer border ${
+                                      selectedReason === reasonOption
+                                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/60 font-medium'
+                                        : 'bg-slate-900/60 text-slate-300 border-slate-800 hover:border-slate-700'
+                                    }`}
+                                  >
+                                    {reasonOption}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label htmlFor={`neg-comment-${msg.id}`} className="block text-[11px] text-slate-400 mb-1">
+                                Tell us more (optional):
+                              </label>
+                              <textarea
+                                id={`neg-comment-${msg.id}`}
+                                value={negativeComment}
+                                onChange={(e) => setNegativeComment(e.target.value)}
+                                placeholder="Explain what information was inaccurate or what you were looking for..."
+                                rows={2}
+                                className="w-full rounded-lg border border-slate-800 bg-slate-900/90 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-rose-500 focus:outline-none"
+                              />
+                            </div>
+
+                            {feedbackError && (
+                              <div className="text-[11px] text-rose-400 bg-rose-950/40 border border-rose-800/50 rounded-lg p-2">
+                                {feedbackError}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800/80">
+                              <button
+                                type="button"
+                                onClick={() => setActiveNegativeMsgId(null)}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmittingFeedback || !selectedReason}
+                                onClick={() => submitFeedback(msg.id, 'negative', selectedReason, negativeComment)}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white shadow-md transition cursor-pointer"
+                              >
+                                {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                              </button>
+                            </div>
+                          </div>
                         )}
-                        {meta.generation_latency_ms ? (
-                          <span className="text-[10px] text-emerald-400 font-mono">
-                            ⚡ Gen: {meta.generation_latency_ms}ms
-                          </span>
-                        ) : meta.latency_ms ? (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            Total: {meta.latency_ms}ms
-                          </span>
-                        ) : null}
-                        {meta.peak_vram_gb && (
-                          <span className="text-[10px] text-purple-400 font-mono">
-                            VRAM: {meta.peak_vram_gb} GB
-                          </span>
+
+                        {/* Positive Feedback Optional Note Modal / Box */}
+                        {activePositiveMsgId === msg.id && (
+                          <div className="rounded-xl border border-emerald-500/30 bg-slate-950/95 p-3.5 space-y-2.5 shadow-xl animate-fadeIn">
+                            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-emerald-400">👍</span>
+                                <span className="font-semibold text-slate-200 text-xs">What was helpful? (optional)</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActivePositiveMsgId(null)}
+                                className="text-slate-500 hover:text-slate-300 text-xs font-mono cursor-pointer"
+                                aria-label="Close note form"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            <textarea
+                              value={positiveComment}
+                              onChange={(e) => setPositiveComment(e.target.value)}
+                              placeholder="Let us know what made this answer helpful..."
+                              rows={2}
+                              className="w-full rounded-lg border border-slate-800 bg-slate-900/90 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+                            />
+
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setActivePositiveMsgId(null)}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                              >
+                                Close
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmittingFeedback}
+                                onClick={() => submitFeedback(msg.id, 'positive', undefined, positiveComment)}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition cursor-pointer"
+                              >
+                                {isSubmittingFeedback ? 'Saving...' : 'Save Note'}
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}

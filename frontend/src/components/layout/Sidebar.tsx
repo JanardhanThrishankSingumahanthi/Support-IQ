@@ -115,6 +115,16 @@ function SettingsIcon({ className = 'h-4 w-4' }: { className?: string }) {
   )
 }
 
+function HelpIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className}>
+      <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="17" x2="12.01" y2="17" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function Sidebar() {
   const location = useLocation()
   const session = getStoredSession()
@@ -123,6 +133,7 @@ export function Sidebar() {
   const navItems: NavItem[] = [
     { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon },
     { label: 'New Chat', path: '/chat', icon: ChatIcon },
+    { label: 'How to Use', path: '/how-to-use', icon: HelpIcon },
     { label: 'Knowledge Base', path: '/knowledge', icon: BookIcon },
     { label: 'Documents', path: '/documents', icon: DocumentIcon },
     { label: 'Analytics', path: '/analytics', icon: AnalyticsIcon },

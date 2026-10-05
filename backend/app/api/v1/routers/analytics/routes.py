@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.db.models import Citation, Conversation, Document, Message, SupportTicket, User
+from app.db.models import AnswerFeedback, Citation, Conversation, Document, Message, SupportTicket, User
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -128,6 +128,39 @@ def get_analytics_overview(
 
     active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 1
 
+    # 4. Real User Answer Feedback Metrics
+    total_feedback = db.query(func.count(AnswerFeedback.id)).scalar() or 0
+    positive_feedback = (
+        db.query(func.count(AnswerFeedback.id))
+        .filter(AnswerFeedback.feedback_type == "positive")
+        .scalar()
+        or 0
+    )
+    negative_feedback = (
+        db.query(func.count(AnswerFeedback.id))
+        .filter(AnswerFeedback.feedback_type == "negative")
+        .scalar()
+        or 0
+    )
+    positive_feedback_pct = round((positive_feedback / total_feedback) * 100, 1) if total_feedback > 0 else None
+    negative_feedback_pct = round((negative_feedback / total_feedback) * 100, 1) if total_feedback > 0 else None
+    feedback_rate = round((total_feedback / max(1, assistant_count)) * 100, 1) if total_feedback > 0 else 0.0
+
+    reasons_query = (
+        db.query(AnswerFeedback.reason, func.count(AnswerFeedback.id))
+        .filter(AnswerFeedback.feedback_type == "negative", AnswerFeedback.reason.isnot(None))
+        .group_by(AnswerFeedback.reason)
+        .all()
+    )
+    feedback_reasons = [
+        {
+            "reason": r,
+            "count": count,
+            "percent": round((count / max(1, negative_feedback)) * 100, 1) if negative_feedback > 0 else 0.0,
+        }
+        for r, count in sorted(reasons_query, key=lambda x: x[1], reverse=True)
+    ]
+
     return {
         "status": "ok",
         "has_data": bool(user_queries_count > 0 or total_tickets > 0 or total_docs > 0),
@@ -152,6 +185,16 @@ def get_analytics_overview(
             "labels": trend_labels,
             "total_queries": trend_total_values,
             "resolved_queries": trend_resolved_values,
+        },
+        "feedback_summary": {
+            "has_data": total_feedback > 0,
+            "total_feedback": total_feedback,
+            "positive_feedback": positive_feedback,
+            "negative_feedback": negative_feedback,
+            "positive_percentage": positive_feedback_pct,
+            "negative_percentage": negative_feedback_pct,
+            "feedback_rate": feedback_rate,
+            "reasons": feedback_reasons,
         },
     }
 
@@ -253,6 +296,14 @@ def export_analytics(
     writer.writerow(["ID", "Title", "State", "Messages Count", "Created At"])
     for c in db.query(Conversation).all():
         writer.writerow([c.id, c.title, c.state, len(c.messages), c.created_at.isoformat()])
+
+    writer.writerow([])
+
+    # Answer Feedback Section
+    writer.writerow(["--- Answer Feedback (User Sentiment) ---"])
+    writer.writerow(["ID", "Message ID", "Conversation ID", "Type", "Reason", "Comment", "Created At"])
+    for f in db.query(AnswerFeedback).all():
+        writer.writerow([f.id, f.message_id, f.conversation_id, f.feedback_type, f.reason or "", f.comment or "", f.created_at.isoformat() if f.created_at else ""])
 
     csv_data = output.getvalue()
     return Response(
